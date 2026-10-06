@@ -20,6 +20,8 @@ const konamiWordleRoute = require("./domains/konamiWordle/konamiWordleRoutes");
 const fechoMensalRoute = require("./domains/fechoMensal/fechoMensalRoutes");
 const naoConformidadeRoute = require("./domains/naoConformidade/naoConformidadeRoutes");
 const deslocacoesRoute = require("./domains/deslocacoes/deslocacoesRoutes");
+const salasRoute = require("./domains/salas/salasRoutes");
+const configRoute = require("./domains/config/configRoutes");
 const { startSchedulers } = require("./shared/services/scheduler");
 
 const app = express();
@@ -47,6 +49,8 @@ app.use("/konami-wordle", konamiWordleRoute);
 app.use("/fecho-mensal", fechoMensalRoute);
 app.use("/nao-conformidades", naoConformidadeRoute);
 app.use("/deslocacoes", deslocacoesRoute);
+app.use("/reservas-salas", salasRoute);
+app.use("/config", configRoute);
 
 
 const server = http.createServer(app);

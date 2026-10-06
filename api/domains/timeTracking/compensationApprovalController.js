@@ -38,12 +38,14 @@ function registoRefFor(uid, { dd, mm, yyyy }) {
     .doc(`registo_${String(dd).padStart(2, "0")}${String(mm).padStart(2, "0")}${yyyy}`);
 }
 
-// Regras de uma compensação (antes em compensateShortDay) - verificadas ao pedir E de
-// novo ao aprovar, porque entre as duas coisas o ponto do dia, o saldo (outras
-// compensações aprovadas entretanto) ou o próprio dia (já compensado) podem ter mudado.
+// Regras de uma compensação - verificadas ao pedir E de novo ao aprovar, porque entre as
+// duas coisas o saldo (outras compensações aprovadas entretanto) ou o próprio dia (já
+// compensado) podem ter mudado. Poder compensar depende APENAS de haver saldo de horas
+// extra aprovadas - não do défice do dia (um dia com 8h ou mais, ou ao fim de semana,
+// também pode ser compensado); minutosFalta é calculado só como informação.
 // "semLimites" (só no PEDIDO feito por um SuperAdmin, ver requestCompensation): ignora o
-// défice do dia e o saldo, para se poder testar o fluxo/email em qualquer dia. A
-// aprovação valida sempre tudo, por isso nunca resulta numa compensação sem saldo.
+// saldo, para se poder testar o fluxo/email. A aprovação valida sempre o saldo, por isso
+// nunca resulta numa compensação sem saldo.
 async function validarCompensacao(uid, date, minutosPedidos, { semLimites = false } = {}) {
   const parsed = parseData(date);
   if (!parsed) return { error: "Campo obrigatório: date (formato DD-MM-YYYY)" };
@@ -66,27 +68,10 @@ async function validarCompensacao(uid, date, minutosPedidos, { semLimites = fals
     ? calcularMinutosFaltaDia(registo.horaEntrada, registo.horaSaida, parsed.dataAtual)
     : (parsed.dataAtual.getDay() === 0 || parsed.dataAtual.getDay() === 6 ? 0 : 480);
 
-  if (semLimites) {
-    const { netMinutes } = await computeAnnualOvertimeBalance(uid, parsed.yyyy);
-    return { parsed, registoRef, registoDoc, minutosFalta, netMinutes };
-  }
-
-  // Um dia com registo mas incompleto (só entrada ou só saída) não dá para calcular o
-  // défice. Sem registo nenhum (falta total) conta como défice do dia inteiro.
-  if (registo && (registo.horaEntrada || registo.horaSaida) && (!registo.horaEntrada || !registo.horaSaida)) {
-    return { error: "Este dia não tem défice de horas para compensar" };
-  }
-  if (minutosFalta <= 0) {
-    return { error: "Este dia não tem défice de horas para compensar" };
-  }
-  if (minutosPedidos > minutosFalta) {
-    return { error: `Não é possível compensar mais do que o défice deste dia (${Math.floor(minutosFalta / 60)}h ${minutosFalta % 60}m)` };
-  }
-
   // Saldo = horas extra APROVADAS menos compensações já APROVADAS (pedidos pendentes não
   // entram, ver nota no topo).
   const { netMinutes } = await computeAnnualOvertimeBalance(uid, parsed.yyyy);
-  if (netMinutes < minutosPedidos) {
+  if (!semLimites && netMinutes < minutosPedidos) {
     return { error: "Saldo anual de horas extra aprovadas insuficiente para compensar este dia" };
   }
 

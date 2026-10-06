@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { apiFetch } from "../../../../../shared/utils/apiFetch";
 import { calcularHoras, formatarMinutos } from "../../../utils/calcHours";
-import { minutosHorasExtraAprovadas, ESTADOS_HORA_EXTRA, estadoHoraExtra } from "../../../utils/horasExtra";
+import { minutosHorasExtraAprovadas, podeCompensarDia } from "../../../utils/horasExtra";
 import RegisterVacation from "../../Shared/vacationButton";
 import DeleteRegister from "./deleteRegisterButton";
 import MedicalLeave from "../../Shared/medicalLeave";
@@ -31,6 +31,8 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
   const [editando, setEditando] = useState(null);
   const [novoValor, setNovoValor] = useState("");
   const [contextMenu, setContextMenu] = useState(null);
+  // Dia escolhido em "Compensar horas" no menu de contexto (abre o modal de compensação).
+  const [diaACompensar, setDiaACompensar] = useState(null);
 
   useEffect(() => {
     if (!username || !month || !year) return;
@@ -425,8 +427,25 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
             onSuccess={fetchData}
           />
           <DeleteRegister username={username} date={contextMenu.dia} onSuccess={fetchData} />
+          {podeCompensarDia(dados[contextMenu.index], { isSuperAdmin, saldoMinutos: saldoHorasExtra }) && (
+            <button onClick={() => { setDiaACompensar(dados[contextMenu.index]); setContextMenu(null); }}>
+              Compensar horas
+            </button>
+          )}
         </div>
       </div>
+    )}
+    {/* Modal de "Compensar horas" do menu de contexto - fora do menu, que fecha ao clicar fora. */}
+    {diaACompensar && (
+      <CompensateOvertimeButton
+        aberto
+        uid={username}
+        date={`${diaACompensar.dia}-${year}`}
+        deficitMinutes={diaACompensar.minutosFalta}
+        saldoMinutos={saldoHorasExtra}
+        onFechar={() => setDiaACompensar(null)}
+        onSuccess={() => { fetchData(); if (onCompensated) onCompensated(); }}
+      />
     )}
 
       <div className="overflow-x-auto w-full max-h-[540px] overflow-y-auto">
@@ -449,10 +468,8 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
               const isLessThanEightHours = item.total !== "-" && parseInt(item.total.split("h")[0]) < 8;
               // Compensável tanto com registo parcial (défice) como com falta total (0h 0m,
               // sem registo)  -  em ambos os casos item.total é numérico e ainda não compensado.
-              // Também não com um pedido de compensação já pendente para o dia.
-              // SuperAdmin pode pedir em qualquer dia (ver compensateOvertimeButton.jsx).
-              const isCompensavel = (isLessThanEightHours || isSuperAdmin) && !item.compensated
-                && !(item.compensationRequests || []).some((p) => estadoHoraExtra(p) === ESTADOS_HORA_EXTRA.PENDENTE);
+              // Mesma regra do menu de contexto (ver podeCompensarDia em utils/horasExtra.js).
+              const isCompensavel = podeCompensarDia(item, { isSuperAdmin, saldoMinutos: saldoHorasExtra });
 
               return (
                 <tr key={index} onContextMenu={(e) => abrirContextMenu(e, index)} className={index % 2 === 0 ? 'bg-gray-50' : ''}>

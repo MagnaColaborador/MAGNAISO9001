@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import TableRow from './tableRow';
 import { calcularHoras, formatarMinutos } from '../../utils/calcHours';
-import { minutosHorasExtraAprovadas } from '../../utils/horasExtra';
+import { minutosHorasExtraAprovadas, podeCompensarDia } from '../../utils/horasExtra';
+import CompensateOvertimeButton from '../Shared/compensateOvertimeButton';
+import { usePermissions } from '../../../../shared/hooks/usePermissions';
 import ContextMenu from './contextMenu';
 import ManualOvertimeModal from './ManualOvertimeModal';
 import { apiFetch } from '../../../../shared/utils/apiFetch';
@@ -17,6 +19,9 @@ const TimeTrackingTable = ({ username, month = new Date().getMonth() + 1, year =
   const [dados, setDados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, dayIndex: null });
+  // Dia escolhido em "Compensar horas" no menu de contexto (abre o modal de compensação).
+  const [diaACompensar, setDiaACompensar] = useState(null);
+  const { isSuperAdmin } = usePermissions();
   const [selectedDate, setSelectedDate] = useState(null);
   const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, content: '' });
   const [overtimeModal, setOvertimeModal] = useState({ show: false, entries: [], date: '' });
@@ -360,7 +365,19 @@ const TimeTrackingTable = ({ username, month = new Date().getMonth() + 1, year =
         username={username}
         month={month}
         onOvertimeRegistered={refreshData}
+        podeCompensar={contextMenu.dayIndex != null && podeCompensarDia(dados[contextMenu.dayIndex], { isSuperAdmin, saldoMinutos: saldoHorasExtra })}
+        onCompensar={() => setDiaACompensar(dados[contextMenu.dayIndex])}
       />
+      {diaACompensar && (
+        <CompensateOvertimeButton
+          aberto
+          date={diaACompensar.diaCompleto}
+          deficitMinutes={diaACompensar.minutosFalta}
+          saldoMinutos={saldoHorasExtra}
+          onFechar={() => setDiaACompensar(null)}
+          onSuccess={refreshData}
+        />
+      )}
       <ManualOvertimeModal
         show={overtimeModal.show}
         onClose={closeOvertimeModal}

@@ -4,7 +4,7 @@ import CompensateOvertimeButton from '../Shared/compensateOvertimeButton';
 import { formatarMinutos } from '../../utils/calcHours';
 import ManualOvertimeCell from '../Shared/ManualOvertimeCell';
 import CompensationCell from '../Shared/CompensationCell';
-import { ESTADOS_HORA_EXTRA, estadoHoraExtra } from '../../utils/horasExtra';
+import { podeCompensarDia } from '../../utils/horasExtra';
 import { usePermissions } from '../../../../shared/hooks/usePermissions';
 
 const TableRow = ({
@@ -42,10 +42,9 @@ const TableRow = ({
   const isFeriasPendente = item.feriasPendente;
   const isBaixaPendente = item.baixaPendente;
   const isCompensado = item.compensated;
-  const temPedidoCompensacaoPendente = (item.compensationRequests || []).some((p) => estadoHoraExtra(p) === ESTADOS_HORA_EXTRA.PENDENTE);
-  // SuperAdmin pode pedir compensação em qualquer dia (ver compensateOvertimeButton.jsx).
+  // Mesma regra do menu de contexto (ver podeCompensarDia em utils/horasExtra.js).
   const { isSuperAdmin } = usePermissions();
-  const podeCompensar = (isLessThanEightHours || isSuperAdmin) && !isCompensado && !temPedidoCompensacaoPendente;
+  const podeCompensar = podeCompensarDia(item, { isSuperAdmin, saldoMinutos: saldoHorasExtra });
 
   // Debug log
   if (item.manualOvertime) {

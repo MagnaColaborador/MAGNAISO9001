@@ -33,6 +33,8 @@ import TimeTrackingUserDetails from "./features/timeTracking/pages/UserDetails";
 import NewEntity from "./features/timeTracking/pages/NewEntity";
 import RegistoNaoConformidade from "./features/naoConformidade/RegistoNaoConformidade";
 import TratarNaoConformidade from "./features/naoConformidade/TratamentoNaoConformidade";
+import MaintenancePage from "./shared/components/MaintenancePage";
+import RequisicaoSalas from "./features/requisicaoSalas/RequisicaoSalas";
 
 function App() {
   const navigate = useNavigate();
@@ -257,6 +259,24 @@ function App() {
           element={
             <ProtectedRoute>
               <TratarNaoConformidade />
+            </ProtectedRoute>
+          }
+        />
+        {/* Gestão de Infraestruturas - o Cadastro de Equipamentos ainda não tem página
+            própria e abre a página de manutenção (ver INFRASTRUCTURE_ITEMS no Sidebar). */}
+        <Route
+          path="/equipamentos"
+          element={
+            <ProtectedRoute>
+              <MaintenancePage title="Cadastro de Equipamentos" />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/requisicao-salas"
+          element={
+            <ProtectedRoute>
+              <MaintenancePage title="Requisição de Salas" />
             </ProtectedRoute>
           }
         />

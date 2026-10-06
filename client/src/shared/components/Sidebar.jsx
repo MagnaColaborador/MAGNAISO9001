@@ -28,10 +28,14 @@ import {
   FaComments,
   FaChevronLeft,
   FaChevronRight,
+  FaWarehouse,
+  FaScrewdriverWrench,
+  FaDoorOpen,
 } from "react-icons/fa6";
 
 const SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
 const RESOURCES_DROPDOWN_KEY = "sidebarResourcesOpen";
+const INFRASTRUCTURE_DROPDOWN_KEY = "sidebarInfrastructureOpen";
 const EXPANDED_WIDTH = 230;
 const COLLAPSED_WIDTH = 64;
 const MOBILE_BREAKPOINT = "(max-width: 767px)";
@@ -59,10 +63,23 @@ const PEOPLE_MANAGEMENT_PATH_PREFIXES = [
   "/premios",
 ];
 
+const matchesPathPrefix = (prefixes, pathname) =>
+  prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+
 const isPeopleManagementPath = (pathname) =>
-  PEOPLE_MANAGEMENT_PATH_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
-  );
+  matchesPathPrefix(PEOPLE_MANAGEMENT_PATH_PREFIXES, pathname);
+
+// Gestão de Infraestruturas - ao contrário de Gestão de Pessoas, cada item tem só uma
+// rota fixa (sem variantes por permissão), por isso o caminho vive no próprio item e
+// basta acrescentar uma entrada aqui para uma nova funcionalidade aparecer no menu.
+// "Cadastro de Equipamentos" ainda não tem página própria: abre a página de manutenção.
+const INFRASTRUCTURE_ITEMS = [
+  { name: "Cadastro de Equipamentos", icon: FaScrewdriverWrench, path: "/equipamentos" },
+  { name: "Requisição de Salas", icon: FaDoorOpen, path: "/requisicao-salas" },
+];
+
+const isInfrastructurePath = (pathname) =>
+  matchesPathPrefix(INFRASTRUCTURE_ITEMS.map((item) => item.path), pathname);
 
 // Mesma normalização usada em toda a app para gerar o slug de uma entidade a
 // partir do seu nome (ex: allEntities.jsx, Entity.jsx)  -  aqui só é preciso para
@@ -102,6 +119,10 @@ export default function Sidebar({ onSelectFile }) {
   const [showResourcesDropdown, setShowResourcesDropdown] = useState(() =>
     isPeopleManagementPath(location.pathname) ||
     localStorage.getItem(RESOURCES_DROPDOWN_KEY) === "1"
+  );
+  const [showInfrastructureDropdown, setShowInfrastructureDropdown] = useState(() =>
+    isInfrastructurePath(location.pathname) ||
+    localStorage.getItem(INFRASTRUCTURE_DROPDOWN_KEY) === "1"
   );
   const [collapsed, setCollapsed] = useState(() =>
     localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1" ||
@@ -151,6 +172,14 @@ export default function Sidebar({ onSelectFile }) {
     });
   };
 
+  const toggleInfrastructureDropdown = () => {
+    setShowInfrastructureDropdown((prev) => {
+      const next = !prev;
+      localStorage.setItem(INFRASTRUCTURE_DROPDOWN_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
+
   const handlePeopleManagementItemClick = (item) => {
     if (item.name === "Livro de Ponto") {
       navigate("/ponto");
@@ -194,6 +223,57 @@ export default function Sidebar({ onSelectFile }) {
       <div className="px-[14px] pt-4 pb-[5px] text-[10px] text-[#B8892A] tracking-[0.08em] uppercase font-semibold">{text}</div>
     );
 
+  // Dropdown do menu (Gestão de Pessoas, Gestão de Infraestruturas, ...) - mesmo aspeto
+  // para todos: em modo colapsado só os ícones, expandido uma caixa com ícone + nome.
+  const renderAccordion = ({ label, Icon, open, onToggle, items, onItemClick }) => (
+    <>
+      <div
+        className={navItemBaseClass}
+        onClick={onToggle}
+        title={collapsed ? label : undefined}
+      >
+        <Icon style={{ fontSize: 16, color: "var(--gold)", flexShrink: 0 }} />
+        {!collapsed && (
+          <>
+            {label}
+            <span className={`text-[10px] transition-transform duration-[250ms] ml-auto${open ? ' rotate-180' : ''}`}>▼</span>
+          </>
+        )}
+      </div>
+      {open && (
+        collapsed ? (
+          <div className="mb-1">
+            {items.map(item => (
+              <div
+                key={item.name}
+                className="flex items-center justify-center py-[9px] text-[13px] text-[#5C3D0E] cursor-pointer rounded-md mx-2 my-px transition-colors duration-150 hover:bg-[#F0E2C4]"
+                onClick={() => onItemClick(item)}
+                title={item.name}
+              >
+                <item.icon style={{ fontSize: 14, color: "var(--gold)", flexShrink: 0 }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mx-2 mb-1 rounded-md overflow-hidden border border-[#E8D0A0] bg-[#FDF8EE]">
+            {items.map(item => (
+              <div
+                key={item.name}
+                className="flex items-start gap-2 px-3 py-[8px] border-b border-[#EDE0C4] last:border-b-0 cursor-pointer transition-colors duration-150 hover:bg-[#F0E2C4]"
+                onClick={() => onItemClick(item)}
+              >
+                <item.icon style={{ fontSize: 12, color: "var(--gold)", flexShrink: 0, marginTop: 2 }} />
+                <span className="text-[12px] text-[#5C3D0E] font-medium leading-snug break-words min-w-0">
+                  {item.name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </>
+  );
+
   return (
     <>
       {isMobile && !collapsed && (
@@ -231,50 +311,24 @@ export default function Sidebar({ onSelectFile }) {
         <div className={navItemClass("/chat")} onClick={() => navigate("/chat")} title={collapsed ? "Chat com RH" : undefined}>
           <FaComments style={{ fontSize: 16, color: "var(--gold)", flexShrink: 0 }} /> {!collapsed && "Chat com RH"}</div>
         {/* Gestão de Pessoas accordion */}
-        <div
-          className={navItemBaseClass}
-          onClick={toggleResourcesDropdown}
-          title={collapsed ? "Gestão de Pessoas" : undefined}
-        >
-          <FaPeopleGroup style={{ fontSize: 16, color: "var(--gold)", flexShrink: 0 }} />
-          {!collapsed && (
-            <>
-              Gestão de Pessoas
-              <span className={`text-[10px] transition-transform duration-[250ms] ml-auto${showResourcesDropdown ? ' rotate-180' : ''}`}>▼</span>
-            </>
-          )}
-        </div>
-        {showResourcesDropdown && (
-          collapsed ? (
-            <div className="mb-1">
-              {PEOPLE_MANAGEMENT_ITEMS.map(item => (
-                <div
-                  key={item.name}
-                  className="flex items-center justify-center py-[9px] text-[13px] text-[#5C3D0E] cursor-pointer rounded-md mx-2 my-px transition-colors duration-150 hover:bg-[#F0E2C4]"
-                  onClick={() => handlePeopleManagementItemClick(item)}
-                  title={item.name}
-                >
-                  <item.icon style={{ fontSize: 14, color: "var(--gold)", flexShrink: 0 }} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="mx-2 mb-1 rounded-md overflow-hidden border border-[#E8D0A0] bg-[#FDF8EE]">
-              {PEOPLE_MANAGEMENT_ITEMS.map(item => (
-                <div
-                  key={item.name}
-                  className="flex items-start gap-2 px-3 py-[8px] border-b border-[#EDE0C4] last:border-b-0 cursor-pointer transition-colors duration-150 hover:bg-[#F0E2C4]"
-                  onClick={() => handlePeopleManagementItemClick(item)}
-                >
-                  <item.icon style={{ fontSize: 12, color: "var(--gold)", flexShrink: 0, marginTop: 2 }} />
-                  <span className="text-[12px] text-[#5C3D0E] font-medium leading-snug break-words min-w-0">
-                    {item.name}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )
-        )}
+        {renderAccordion({
+          label: "Gestão de Pessoas",
+          Icon: FaPeopleGroup,
+          open: showResourcesDropdown,
+          onToggle: toggleResourcesDropdown,
+          items: PEOPLE_MANAGEMENT_ITEMS,
+          onItemClick: handlePeopleManagementItemClick,
+        })}
+
+        {/* Gestão de Infraestruturas accordion */}
+        {renderAccordion({
+          label: "Gestão de Infraestruturas",
+          Icon: FaWarehouse,
+          open: showInfrastructureDropdown,
+          onToggle: toggleInfrastructureDropdown,
+          items: INFRASTRUCTURE_ITEMS,
+          onItemClick: (item) => navigate(item.path),
+        })}
 
         {/* Favoritos accordion */}
         {favorites.length > 0 && (

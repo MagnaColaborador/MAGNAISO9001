@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FaStopwatch } from 'react-icons/fa6';
+import { FaStopwatch, FaClockRotateLeft } from 'react-icons/fa6';
 import VacationButton from '../Shared/vacationButton';
 import MedicalLeave from '../Shared/medicalLeave';
 import ManualOvertimeButton from './manualOvertime';
@@ -8,6 +8,7 @@ import RequestTimeEditButton from './requestTimeEditButton';
 const ContextMenu = ({
   visible, x, y, onClose, date, username, month, isAdmin = false, onOvertimeRegistered,
   isDiaEditavel = false, dateCompleta, horaEntradaAtual, horaSaidaAtual, onTimeEditRequested,
+  podeCompensar = false, onCompensar,
 }) => {
   const [activeSubMenu, setActiveSubMenu] = useState(null);
   const [showOvertimeModal, setShowOvertimeModal] = useState(false);
@@ -83,6 +84,19 @@ const ContextMenu = ({
           Registar Horas Extra
         </span>
       </div>
+      {/* Compensar horas: abre o mesmo modal do botão da coluna "Compensação Horas" (ao
+          nível da tabela, ver pontoTable.jsx) - só para dias compensáveis (podeCompensarDia). */}
+      {podeCompensar && (
+        <div className="cursor-pointer select-none transition-colors hover:bg-gray-100">
+          <span
+            className="py-2.5 px-4 flex items-center gap-2 text-sm text-gray-800"
+            onClick={(e) => { e.stopPropagation(); onClose(); if (onCompensar) onCompensar(); }}
+          >
+            <FaClockRotateLeft className="text-[#C8932F]" />
+            Compensar horas
+          </span>
+        </div>
+      )}
       {isAdmin && (
         <div className="cursor-pointer select-none transition-colors hover:bg-gray-100 [&_button]:w-full [&_button]:py-2.5 [&_button]:px-4 [&_button]:flex [&_button]:items-center [&_button]:gap-2 [&_button]:text-sm [&_button]:text-gray-800 [&_button]:text-left [&_button]:bg-transparent [&_button]:border-none [&_button]:cursor-pointer">
           <VacationButton username={username} date={date} onSuccess={onClose} />

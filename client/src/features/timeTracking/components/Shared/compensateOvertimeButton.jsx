@@ -1,9 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 import { apiFetch } from '../../../../shared/utils/apiFetch';
 import { usePermissions } from '../../../../shared/hooks/usePermissions';
 
 const formatMinutes = (min) => `${Math.floor(min / 60)}h ${min % 60}m`;
+
+// "DD-MM-YYYY" (formato do prop date, nas duas tabelas de ponto) -> "terça-feira, 29/09/2026",
+// para o modal deixar claro que dia vai ser compensado.
+const formatDiaCompensar = (date) => {
+  const [dd, mm, yyyy] = (date || '').split('-').map(Number);
+  if (!dd || !mm || !yyyy) return date || '';
+  const diaSemana = new Date(yyyy, mm - 1, dd).toLocaleDateString('pt-PT', { weekday: 'long' });
+  return `${diaSemana}, ${String(dd).padStart(2, '0')}/${String(mm).padStart(2, '0')}/${yyyy}`;
+};
 
 // Compensa o défice de um dia com menos de 8h usando o saldo anual de horas
 // extra. O mensal nunca é tocado (fica só a acumular); o utilizador escolhe
@@ -16,11 +25,23 @@ const formatMinutes = (min) => `${Math.floor(min / 60)}h ${min % 60}m`;
 // saldoMinutos: saldo anual de horas extra disponível (totalNetOvertimeMinutes de
 // /overtime-summary). Sem saldo (ou ainda a carregar) o botão não aparece; com
 // saldo, o máximo a compensar é o menor entre o défice do dia e o saldo.
-const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos, onSuccess }) => {
-  const [showModal, setShowModal] = useState(false);
+// Modo controlado ("aberto" definido): não mostra o botão, só o modal enquanto "aberto"
+// for true - usado pela ação "Compensar horas" do menu de contexto das tabelas de ponto,
+// que fecha o menu e abre o modal ao nível da tabela. "onFechar" é chamado ao fechar.
+const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos, onSuccess, aberto, onFechar }) => {
+  const controlado = aberto !== undefined;
+  const [showModalInterno, setShowModal] = useState(false);
+  const showModal = controlado ? aberto : showModalInterno;
   const [hours, setHours] = useState('');
   const [minutes, setMinutes] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (controlado && aberto) {
+      setHours('');
+      setMinutes('');
+    }
+  }, [controlado, aberto, date]);
 
   const openModal = (e) => {
     if (e) e.stopPropagation();
@@ -32,15 +53,20 @@ const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos,
   const closeModal = () => {
     if (loading) return;
     setShowModal(false);
+    if (onFechar) onFechar();
   };
 
-  // SuperAdmin pode pedir sempre (qualquer dia, sem saldo nem limite do défice) - o
-  // backend aceita o pedido (ver semLimites em compensationApprovalController.js), mas a
-  // aprovação continua a validar défice e saldo.
+  // O limite é só o saldo de horas extra aprovadas (não o défice do dia). O défice, quando
+  // existe, só serve de sugestão para o preenchimento automático. SuperAdmin pode pedir sem
+  // saldo - o backend aceita o pedido (ver semLimites em compensationApprovalController.js),
+  // mas a aprovação continua a validar o saldo.
   const { isSuperAdmin } = usePermissions();
   const saldo = saldoMinutos || 0;
-  const maxMinutes = isSuperAdmin ? (deficitMinutes > 0 ? deficitMinutes : 480) : Math.min(deficitMinutes, saldo);
-  const limitadoPeloSaldo = !isSuperAdmin && saldo < deficitMinutes;
+  const sugestaoDefice = deficitMinutes > 0 ? deficitMinutes : null;
+  const maxMinutes = isSuperAdmin
+    ? (sugestaoDefice ?? 480)
+    : Math.min(sugestaoDefice ?? saldo, saldo);
+  const limitadoPeloSaldo = !isSuperAdmin && (sugestaoDefice == null || saldo < sugestaoDefice);
 
   const handleAutoFill = () => {
     setHours(String(Math.floor(maxMinutes / 60)));
@@ -60,8 +86,8 @@ const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos,
       toast.error(`Saldo anual de horas extra insuficiente (disponível: ${formatMinutes(saldo)})`);
       return;
     }
-    if (!isSuperAdmin && totalMinutesChosen > deficitMinutes) {
-      toast.error(`Não podes compensar mais do que o défice deste dia (${formatMinutes(deficitMinutes)})`);
+    if (totalMinutesChosen > 1440) {
+      toast.error('Não é possível compensar mais de 24h num dia');
       return;
     }
 
@@ -83,6 +109,7 @@ const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos,
       // efeito (e consome o saldo) - ver compensationApprovalController.js.
       toast.success(`Pedido de compensação de ${formatMinutes(totalMinutesChosen)} enviado - pendente de aprovação pela GestorRH`);
       setShowModal(false);
+      if (onFechar) onFechar();
       if (onSuccess) onSuccess();
     } catch (err) {
       console.error("Erro ao compensar dia:", err);
@@ -96,6 +123,7 @@ const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos,
 
   return (
     <>
+      {!controlado && (
       <button
         onClick={openModal}
         title="Compensar défice deste dia com o saldo anual de horas extra aprovadas"
@@ -103,6 +131,7 @@ const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos,
       >
         Compensar
       </button>
+      )}
 
       {showModal && (
         <div
@@ -120,11 +149,13 @@ const CompensateOvertimeButton = ({ uid, date, deficitMinutes = 0, saldoMinutos,
             >
               ×
             </button>
-            <h2 className="text-xl font-bold text-gray-800 mb-2">Compensar dia</h2>
+            <h2 className="text-xl font-bold text-gray-800 mb-1">Compensar dia</h2>
+            <p className="text-base font-semibold text-[#C8932F] mb-3 first-letter:uppercase">{formatDiaCompensar(date)}</p>
             <p className="text-sm text-gray-600 mb-5">
-              Défice deste dia: <strong>{formatMinutes(deficitMinutes)}</strong>. Escolhe quantas horas queres
-              descontar do saldo anual de horas extra aprovadas para compensar este dia (horas extra pendentes de aprovação não contam). Saldo disponível: <strong>{formatMinutes(saldo)}</strong>.
+              {sugestaoDefice != null && <>Défice deste dia: <strong>{formatMinutes(deficitMinutes)}</strong>. </>}
+              Escolhe quantas horas queres descontar do saldo anual de horas extra para compensar este dia. 
             </p>
+            Saldo disponível: <strong>{formatMinutes(saldo)}</strong>.
             <p className="text-xs text-gray-500 -mt-3 mb-5">
               O pedido fica pendente de aprovação pela GestorRH e só é descontado do saldo depois de aprovado.
             </p>

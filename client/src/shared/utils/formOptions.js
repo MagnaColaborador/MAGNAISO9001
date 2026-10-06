@@ -42,20 +42,8 @@ export const MOTIVO_CESSACAO_OPTIONS = [
   "Reforma",
   "Falecimento",
 ];
-export const LOCAL_OPTIONS = ["Porto", "Coimbra", "Paredes", "Canedo", "Abrantes", "Vila Nova de Gaia"];
-// Morada de cada local de trabalho, mostrada dentro do próprio select de "Local de
-// trabalho" (ver LOCAL_OPTION_LABELS), não como campo à parte.
-export const LOCAL_MORADA = {
-  "Porto": "Rua de S. Catarina 1498, 4000-448",
-  "Coimbra": "R. Padre Estevão Cabral 72 2º, 3000-316",
-  "Paredes": "Alameda Dr. José Cabral 71c, 4580-127 Paredes",
-  "Vila Nova de Gaia": "Av. Dr. Moreira Sousa 593H, 4415-383",
-  "Canedo": "Rua Principal 1508, 4525-189 Canedo",
-  "Abrantes": "Praça Raimundo José Soares Mendes, Nº 21, 2200-366",
-};
-export const LOCAL_OPTION_LABELS = Object.fromEntries(
-  LOCAL_OPTIONS.map(o => [o, LOCAL_MORADA[o] ? `${o} - ${LOCAL_MORADA[o]}` : o])
-);
+// Locais de trabalho (LOCAL_OPTIONS/moradas) já não vivem aqui: a fonte de verdade é o
+// backend (api/shared/lib/locaisTrabalho.js), obtida com o hook useLocaisTrabalho.
 export const TIPO_CONTRATO_SEM_TERMO = "Contrato sem termo";
 export const TIPO_ESTAGIO_OPTIONS = ["Profissional", "Curricular"];
 export const TIPO_ESTAGIO_PROFISSIONAL = "Profissional";

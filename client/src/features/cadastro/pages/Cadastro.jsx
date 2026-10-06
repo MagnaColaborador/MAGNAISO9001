@@ -14,6 +14,7 @@ import {
 } from "react-icons/fa6";
 import { apiFetch } from "../../../shared/utils/apiFetch";
 import { usePermissions } from "../../../shared/hooks/usePermissions";
+import { useLocaisTrabalho } from "../../../shared/hooks/useLocaisTrabalho";
 import { getNomeCurto } from "../../../shared/utils/nomeCurto";
 import {
   validarNIF, validarNISS, validarIBAN, validarCodigoPostal, validarTelefone, validarCartaoCidadao,
@@ -22,7 +23,7 @@ import {
   SITUACAO_CONJUGAL_OPTIONS, GRAU_PARENTESCO_OPTIONS, IRS_JOVEM_OPTIONS,
   TIPO_CONTRATO_OPTIONS, SITUACAO_CONTRATUAL_OPTIONS, DEPARTAMENTO_OPTIONS,
   TIPO_BAIXA_OPTIONS, SITUACAO_CESSADO, MOTIVO_CESSACAO_OPTIONS,
-  LOCAL_OPTIONS, LOCAL_OPTION_LABELS, TIPO_CONTRATO_SEM_TERMO,
+  TIPO_CONTRATO_SEM_TERMO,
   TIPO_ESTAGIO_OPTIONS, TIPO_ESTAGIO_PROFISSIONAL, HABILITACOES_OPTIONS, FUNCAO,
 } from "../../../shared/utils/formOptions";
 
@@ -206,7 +207,9 @@ const SECTIONS = [
       { key: "motivo_cessacao", label: "Motivo da cessação", type: "select", options: MOTIVO_CESSACAO_OPTIONS, showIf: f => f.situacao_contratual === SITUACAO_CESSADO },
       { key: "role", label: "Função", type: "text", list: "funcao", newRow: true },
       { key: "departamento", label: "Departamento", type: "select", options: DEPARTAMENTO_OPTIONS },
-      { key: "sede", label: "Local de trabalho", type: "select", options: LOCAL_OPTIONS, optionLabels: LOCAL_OPTION_LABELS },
+      // Opções vindas do backend (GET /config/locais-trabalho, ver useLocaisTrabalho) - a
+      // lista de locais de trabalho não existe no frontend.
+      { key: "sede", label: "Local de trabalho", type: "select", optionsSource: "locaisTrabalho" },
       { key: "data_admissao", label: "Data de admissão", type: "date", inBlock: true },
       { key: "data_fim_contrato", label: "Data de fim de contrato", type: "date", showIf: f => f.tipo_contrato !== TIPO_CONTRATO_SEM_TERMO, inBlock: true },
       { key: "digitalizacao_contrato", label: "Contrato (todas as páginas)", type: "file", storageName: "Contrato_Trabalho", inBlock: true },
@@ -434,6 +437,7 @@ export default function Cadastro() {
   const location = useLocation();
   const { username, uid, setUsername } = useContext(UserContext);
   const { isSuperAdmin, isGestorRH, isAdministrador, isGestorFinanceiro, canViewCadastro, canEditCadastro, canEditCadastroRestrito } = usePermissions();
+  const locaisTrabalho = useLocaisTrabalho();
   const isViewingOther = !!id;
   const targetKey = id || uid;
   const targetLabel = isViewingOther ? (location.state?.nome || id) : username;
@@ -804,7 +808,8 @@ export default function Cadastro() {
   };
 
   const renderField = (field, editable, dataSource = form, errors = {}, blockErrs = {}) => {
-    const { key, label, type, options, placeholder } = field;
+    const { key, label, type, placeholder } = field;
+    const options = field.optionsSource === "locaisTrabalho" ? locaisTrabalho.nomes : field.options;
     if (field.readOnly) editable = false;
     // "newRow" força o campo a começar numa linha nova mesmo que a linha anterior tenha um
     // número variável de campos (por causa de showIf)  -  ver os campos das secções em SECTIONS.
@@ -1201,7 +1206,8 @@ export default function Cadastro() {
       const currentValue = dataSource[key];
       // "optionLabels" (opcional) mostra um texto mais descritivo por opção  -  ex: "Local de
       // trabalho" mostra a morada de cada sede junto ao nome, sem precisar de um campo à parte.
-      const optionLabel = o => field.optionLabels?.[o] || o;
+      const optionLabels = field.optionsSource === "locaisTrabalho" ? locaisTrabalho.labels : field.optionLabels;
+      const optionLabel = o => optionLabels?.[o] || o;
       return (
         <div key={key} style={layoutStyle}>
           <span style={labelStyle}>{label}</span>
