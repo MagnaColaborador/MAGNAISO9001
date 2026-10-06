@@ -3,6 +3,7 @@ const { resolveTargetUid } = require("./helpers");
 const { isMonthClosed, refreshFechoMensalSnapshotIfClosed, MENSAGEM_MES_FECHADO } = require("../../shared/lib/monthLock");
 const { isWeekendOrHolidayDDMM } = require("./holidays");
 const { isAdministrador, entidadeNoAmbito } = require("../../shared/middleware/auth");
+const { agoraLisboa } = require("../salas/salasLogic");
 const db = admin.firestore();
 
 // Formato aceite: "DD-MM-YYYY" (mesmo formato usado em Ferias/BaixasMedicas).
@@ -65,24 +66,18 @@ const requestTimeEdit = async (req, res) => {
       return res.status(400).json({ error: "É obrigatório indicar uma justificação" });
     }
 
-    const { dd, mm, yyyy, dataObj } = parsed;
-    const agora = new Date();
-    const hoje = new Date(agora);
-    hoje.setHours(0, 0, 0, 0);
-    // O servidor pode correr num fuso horário diferente do colaborador (ex.: servidor
-    // em UTC, colaborador em Portugal)  -  tolera-se até 1 dia de desvio para o que
-    // conta como "não é no futuro", para não rejeitar "hoje" à volta da meia-noite.
-    const amanha = new Date(hoje);
-    amanha.setDate(amanha.getDate() + 1);
-    if (dataObj > amanha) {
+    const { dd, mm, yyyy } = parsed;
+    // "Hoje" e "agora" contam sempre na hora de Lisboa  -  o servidor corre em UTC no
+    // Render, o que no verão punha a hora atual uma hora atrás e recusava saídas que
+    // já tinham passado.
+    const agora = agoraLisboa();
+    const dataIso = `${yyyy}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+    if (dataIso > agora.data) {
       return res.status(400).json({ error: "Só é possível pedir alteração de hoje ou de dias passados" });
     }
 
-    // A validação "a hora ainda não passou" só se aplica quando o servidor também
-    // considera que a data pedida é hoje  -  com o desvio de fuso acima, fora desse
-    // caso confia-se na validação já feita do lado do cliente.
-    if (dataObj.getTime() === hoje.getTime()) {
-      const minutosAgora = agora.getHours() * 60 + agora.getMinutes();
+    if (dataIso === agora.data) {
+      const minutosAgora = agora.minutos;
       const paraMinutos = (hhmm) => {
         const [h, m] = hhmm.split(":").map(Number);
         return h * 60 + m;
