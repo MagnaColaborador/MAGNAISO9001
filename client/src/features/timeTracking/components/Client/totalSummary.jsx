@@ -86,7 +86,6 @@ const TotaisSummary = ({ username, month = new Date().getMonth() + 1, reloadTick
         const baixas = data.baixas || [];
         const aniversario = data.aniversario || [];
         const manualOvertime = data.manualOvertime || [];
-        const cedencias = data.cedencias || [];
         const licencasOuBaixasCadastro = data.licencasOuBaixasCadastro || [];
         const situacaoContratual = data.situacaoContratual || "Ativo";
         const dataFimContrato = data.dataFimContrato || null;
@@ -116,14 +115,14 @@ const TotaisSummary = ({ username, month = new Date().getMonth() + 1, reloadTick
           const isPast = dataAtual < hoje && dataAtual.toDateString() !== hoje.toDateString();
           const isWorkday = diaSemana >= 1 && diaSemana <= 5;
 
-          // Cedência temporária, licença/baixa médica (do Cadastro) ou contrato já não
-          // ativo (cessado/suspenso/reformado)  -  também não devem contar como falta.
+          // Licença/baixa médica (do Cadastro) ou contrato já não ativo (cessado/suspenso/
+          // reformado)  -  também não devem contar como falta. A cedência temporária não
+          // entra aqui: o colaborador cedido continua a bater o ponto (ver pontoTable.jsx).
           const dataIso = `${currentYear}-${String(month).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-          const isCedencia = cedencias.some((b) => isBlocoAtivoEm(b, dataIso));
           const isLicencaOuBaixaCadastro = licencasOuBaixasCadastro.some((b) => isBlocoAtivoEm(b, dataIso));
           const isForaDeAtivo = isDiaForaDeAtivo(situacaoContratual, dataFimContrato, dataIso);
 
-          if (isPast && isWorkday && !isHoliday && !isFerias && !isBaixa && !isAniversario && !isCedencia && !isLicencaOuBaixaCadastro && !isForaDeAtivo && !registo) {
+          if (isPast && isWorkday && !isHoliday && !isFerias && !isBaixa && !isAniversario && !isLicencaOuBaixaCadastro && !isForaDeAtivo && !registo) {
             diasFalta++;
           }
         }

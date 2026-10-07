@@ -73,7 +73,6 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
         isFerias: false,
         isBaixaMedica: false,
         isAniversario: false,
-        isCedencia: false,
         isLicencaOuBaixaCadastro: false,
         isForaDeAtivo: false,
       }));
@@ -132,7 +131,6 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
             })
         : [];
 
-      const cedencias = Array.isArray(data.cedencias) ? data.cedencias : [];
       const licencasOuBaixasCadastro = Array.isArray(data.licencasOuBaixasCadastro) ? data.licencasOuBaixasCadastro : [];
       const situacaoContratual = data.situacaoContratual || "Ativo";
       const dataFimContrato = data.dataFimContrato || null;
@@ -154,11 +152,12 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
         const estaDeBaixaMedica = baixas.includes(item.dia);
         const estaDeAniversario = aniversarios.includes(item.dia);
 
-        // Cedência temporária, licença/baixa médica (registada no Cadastro) ou contrato
-        // já não ativo (cessado/suspenso/reformado)  -  também não contam como falta.
+        // Licença/baixa médica (registada no Cadastro) ou contrato já não ativo
+        // (cessado/suspenso/reformado)  -  também não contam como falta. A cedência
+        // temporária não entra aqui: o colaborador cedido continua a bater o ponto, por
+        // isso o dia mostra a entrada/saída como qualquer outro.
         const dataIso = `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`;
         const blocoLicencaOuBaixaCadastro = licencasOuBaixasCadastro.find((b) => isBlocoAtivoEm(b, dataIso));
-        const blocoCedencia = cedencias.find((b) => isBlocoAtivoEm(b, dataIso));
         const foraDeAtivo = isDiaForaDeAtivo(situacaoContratual, dataFimContrato, dataIso);
 
         if (blocoLicencaOuBaixaCadastro) {
@@ -170,17 +169,6 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
             total: label,
             extra: label,
             isLicencaOuBaixaCadastro: true,
-          };
-        }
-
-        if (blocoCedencia) {
-          return {
-            ...item,
-            horaEntrada: "Cedência",
-            horaSaida: "Cedência",
-            total: "Cedência",
-            extra: "Cedência",
-            isCedencia: true,
           };
         }
 
@@ -309,7 +297,7 @@ const TableHours = ({ username, month, year, onTotaisChange, onDadosChange, sald
         };
       });
 
-      const diasFalta = novosDados.filter((d) => d.total === "0h 0m" && !d.compensated && !d.isFerias && !d.isBaixaMedica && !d.isAniversario && !d.isCedencia && !d.isLicencaOuBaixaCadastro && !d.isForaDeAtivo).length;
+      const diasFalta = novosDados.filter((d) => d.total === "0h 0m" && !d.compensated && !d.isFerias && !d.isBaixaMedica && !d.isAniversario && !d.isLicencaOuBaixaCadastro && !d.isForaDeAtivo).length;
       const diasFerias = novosDados.filter((d) => d.isFerias).length;
       const diasBaixaMedica = novosDados.filter((d) => d.isBaixaMedica).length;
       const diasAniversario = novosDados.filter((d) => d.isAniversario).length;

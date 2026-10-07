@@ -74,7 +74,7 @@ const BLOCK_COLLECTIONS = [
   { collection: "baixasMedicas", requestKey: "baixasMedicas" },
   // Histórico de contratos anteriores (o contrato atual continua nos campos tipo_contrato/
   // data_admissao/data_fim_contrato do documento do user). Subcoleção com nome próprio
-  // para não entrar nos collectionGroup('cedencias') usados no livro de ponto/estado.
+  // para não entrar nos collectionGroup('cedencias') usados no estado de hoje dos colaboradores.
   // "idPorDataInicio": o id de cada documento é o ano-mês de início (ver idsPorDataInicio).
   { collection: "contratosAnteriores", requestKey: "contratosAnteriores", idPorDataInicio: true },
 ];

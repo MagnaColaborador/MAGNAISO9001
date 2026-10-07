@@ -65,7 +65,7 @@ function getMonthName(month) {
 // chamador precisava das 3. Os dois chamadores (getUserRecords e
 // calculateMonthlyAttendanceSummary, mais abaixo) agora leem esse documento uma única
 // vez e passam userData às funções puras abaixo; só getUserCadastroAusencias continua
-// assíncrona, por causa das subcoleções cedencias/baixasMedicas que lhe são próprias.
+// assíncrona, por causa da subcoleção baixasMedicas que lhe é própria.
 
 // Data de criação do colaborador, a partir de um users/{uid} já lido.
 function extractUserCreatedAt(userData) {
@@ -96,23 +96,20 @@ function extractUserSede(userData) {
 }
 
 // Situação contratual e ausências geridas no módulo de Cadastro (situacao_contratual/
-// data_fim_contrato no próprio documento do colaborador, já lido pelo chamador, e as
-// subcoleções users/{uid}/cedencias e users/{uid}/baixasMedicas  -  ver
-// cadastroController.js). Distintas das coleções Ferias/BaixasMedicas do livro de ponto
-// acima, e até agora nunca cruzadas com o cálculo de faltas (ver isDiaForaDeAtivo, usado
-// em calculateMonthlyAttendanceSummary).
+// data_fim_contrato no próprio documento do colaborador, já lido pelo chamador, e a
+// subcoleção users/{uid}/baixasMedicas  -  ver cadastroController.js). Distintas das
+// coleções Ferias/BaixasMedicas do livro de ponto acima, e até agora nunca cruzadas com
+// o cálculo de faltas (ver isDiaForaDeAtivo, usado em calculateMonthlyAttendanceSummary).
+// As cedências temporárias (users/{uid}/cedencias) ficam de fora de propósito: o
+// colaborador cedido continua a bater o ponto, por isso o livro de ponto trata-o como ativo.
 async function getUserCadastroAusencias(uid, userData) {
   const data = userData || {};
 
-  const [cedenciasSnap, licencasSnap] = await Promise.all([
-    db.collection("users").doc(uid).collection("cedencias").get(),
-    db.collection("users").doc(uid).collection("baixasMedicas").get(),
-  ]);
+  const licencasSnap = await db.collection("users").doc(uid).collection("baixasMedicas").get();
 
   return {
     situacaoContratual: data.situacao_contratual || "Ativo",
     dataFimContrato: data.data_fim_contrato || null,
-    cedencias: cedenciasSnap.docs.map(doc => doc.data()),
     licencasOuBaixas: licencasSnap.docs.map(doc => doc.data()),
   };
 }
@@ -317,7 +314,7 @@ const getUserRecords = async (req, res) => {
     const userCreatedAt = extractUserCreatedAt(userDataForSummary);
     // Sede do colaborador, para o frontend saber que feriado municipal aplicar
     const sede = extractUserSede(userDataForSummary);
-    // Situação contratual, cedências e licenças/baixas do Cadastro, para o frontend não
+    // Situação contratual e licenças/baixas do Cadastro, para o frontend não
     // marcar esses dias como falta (ver isDiaForaDeAtivo/getUserCadastroAusencias acima).
     const cadastroAusencias = await getUserCadastroAusencias(userId, userDataForSummary);
 
@@ -374,7 +371,6 @@ const getUserRecords = async (req, res) => {
       sede,
       situacaoContratual: cadastroAusencias.situacaoContratual,
       dataFimContrato: cadastroAusencias.dataFimContrato,
-      cedencias: cadastroAusencias.cedencias,
       licencasOuBaixasCadastro: cadastroAusencias.licencasOuBaixas
     });
   } catch (error) {
@@ -537,7 +533,7 @@ const getOvertimeSummary = async (req, res) => {
 // feriados/férias/baixas/aniversário excluídos.
 //
 // Antes chamava calculateMonthlyAttendanceSummary 12 vezes, o que relia 12x os mesmos
-// dados anuais (users/{uid}, cedências/baixas do Cadastro e Ferias/BaixasMedicas/
+// dados anuais (users/{uid}, baixas do Cadastro e Ferias/BaixasMedicas/
 // DiasAniversario "where year") - agora cada um é lido uma única vez e os 12 meses são
 // calculados em memória. Os Registos passam a ser 1 query do ano inteiro, repartida
 // por mês com exatamente os mesmos limites das 12 queries mensais (ver
@@ -655,9 +651,9 @@ async function calculateMonthlyAttendanceSummary({ uid, year, month, assumeWorke
   });
 }
 
-// users/{uid} (sede, createdAt, situação contratual) e as cedências/baixas do Cadastro
+// users/{uid} (sede, createdAt, situação contratual) e as baixas do Cadastro
 // - iguais para qualquer mês, por isso getYearlySummary lê-os uma só vez para os 12.
-// As cedências/baixas do Cadastro são blocos com início/fim que podem atravessar meses,
+// As baixas do Cadastro são blocos com início/fim que podem atravessar meses,
 // por isso continuam a ser lidos por inteiro (não há um filtro por mês equivalente).
 async function loadAttendanceUserContext(uid) {
   // users/{uid} lido uma única vez e partilhado pelas 3 leituras abaixo, em vez de cada
@@ -808,10 +804,10 @@ function computeMonthlyAttendance({ year, month, assumeWorkedFrom, now, userCont
     } else if (aniversarioDias.has(dia)) {
       status = "aniversario";
     } else if (
-      // Cedência temporária, licença/baixa médica (registada no Cadastro) ou contrato já
-      // não ativo (cessado/suspenso/reformado)  -  ver getUserCadastroAusencias acima.
+      // Licença/baixa médica (registada no Cadastro) ou contrato já não ativo (cessado/
+      // suspenso/reformado)  -  ver getUserCadastroAusencias acima. A cedência temporária
+      // não entra aqui: o colaborador cedido continua a bater o ponto como os outros.
       isDiaForaDeAtivo(cadastroAusencias, diaIso) ||
-      cadastroAusencias.cedencias.some(bloco => isBlocoAtivoEm(bloco, diaIso)) ||
       cadastroAusencias.licencasOuBaixas.some(bloco => isBlocoAtivoEm(bloco, diaIso))
     ) {
       status = "inativo";
