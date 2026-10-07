@@ -131,32 +131,56 @@ function isDiaForaDeAtivo({ situacaoContratual, dataFimContrato }, dataIso) {
 // timeTrackingController.js) menos o que já foi usado para compensar dias curtos
 // (campo "horas_compensatorias", gravado no próprio Registos do dia compensado).
 async function computeAnnualOvertimeBalance(uid, year) {
-  const yearStart = new Date(year, 0, 1);
-  const yearEnd = new Date(year, 11, 31, 23, 59, 59);
-
-  const registosSnapshot = await db
-    .collection("registo-ponto")
-    .doc(uid)
-    .collection("Registos")
-    .where("timestamp", ">=", yearStart)
-    .where("timestamp", "<=", yearEnd)
-    .get();
-
-  let grossMinutes = 0;
-  let compensatedMinutes = 0;
-  registosSnapshot.forEach(doc => {
-    const data = doc.data();
-    compensatedMinutes += data.horas_compensatorias || 0;
-  });
-
-  const manualOvertimeDocs = await getManualOvertimeDocsForYear(uid, year);
+  const [compensatedMinutes, manualOvertimeDocs] = await Promise.all([
+    getCompensatedMinutesForYear(uid, year),
+    getManualOvertimeDocsForYear(uid, year),
+  ]);
 
   // Só as horas extra aprovadas pela GestorRH entram no saldo (ver overtimeApprovalController.js).
+  let grossMinutes = 0;
   manualOvertimeDocs.filter(doc => isHoraExtraAprovada(doc.data())).forEach(doc => {
     grossMinutes += doc.data().totalMinutes || 0;
   });
 
   return { grossMinutes, compensatedMinutes, netMinutes: grossMinutes - compensatedMinutes };
+}
+
+// Soma de "horas_compensatorias" dos Registos do ano. Só os dias compensados têm este
+// campo (gravado ao aprovar uma compensação - ver approveCompensation), por isso em vez de
+// ler todos os Registos do ano (centenas de documentos até dezembro, para somar um campo
+// que quase nunca existe) lê-se só os que o têm: where(">", 0) num único campo usa o
+// índice automático de campo único, sem índice novo. Devolve todos os anos (poucos
+// documentos), filtrados aqui pelo ano com os mesmos limites de antes (ver
+// isTimestampInRange). Um dia sem o campo, ou com 0, somava 0 - fica de fora sem mudar o
+// total. Se a query falhar por falta de índice (FAILED_PRECONDITION, ex.: campo isento de
+// indexação), volta à leitura do ano inteiro de antes - mesmo resultado, mais leituras.
+const FAILED_PRECONDITION = 9;
+async function getCompensatedMinutesForYear(uid, year) {
+  const yearStart = new Date(year, 0, 1);
+  const yearEnd = new Date(year, 11, 31, 23, 59, 59);
+  const registosRef = db.collection("registo-ponto").doc(uid).collection("Registos");
+
+  try {
+    const snapshot = await registosRef.where("horas_compensatorias", ">", 0).get();
+    let total = 0;
+    snapshot.forEach(doc => {
+      const data = doc.data();
+      if (isTimestampInRange(data.timestamp, yearStart, yearEnd)) total += data.horas_compensatorias;
+    });
+    return total;
+  } catch (queryError) {
+    if (queryError.code !== FAILED_PRECONDITION) throw queryError;
+    console.warn("[getCompensatedMinutesForYear] Query por horas_compensatorias indisponível - a ler os Registos do ano inteiro:", queryError.message);
+    const snapshot = await registosRef
+      .where("timestamp", ">=", yearStart)
+      .where("timestamp", "<=", yearEnd)
+      .get();
+    let total = 0;
+    snapshot.forEach(doc => {
+      total += doc.data().horas_compensatorias || 0;
+    });
+    return total;
+  }
 }
 
 const getUserRecords = async (req, res) => {
@@ -434,10 +458,6 @@ const getOvertimeSummary = async (req, res) => {
       }
 
       totalCompensatedMinutes += data.horas_compensatorias || 0;
-      // DEBUG horas extra
-      if (data.horas_compensatorias) {
-        console.log(`[DEBUG horas extra] compensado ${doc.id} (${date.toLocaleDateString("pt-PT")}): -${data.horas_compensatorias} min`);
-      }
     });
 
     // Buscar horas extras manuais (ver getManualOvertimeDocsForYear) - só as aprovadas
@@ -468,7 +488,6 @@ const getOvertimeSummary = async (req, res) => {
       monthlyData[monthKey].manualOvertimeMinutes += data.totalMinutes || 0;
       totalManualOvertimeMinutes += data.totalMinutes || 0;
       // DEBUG horas extra
-      console.log(`[DEBUG horas extra] extra manual ${doc.id} (${data.date} ${data.startHour}-${data.endHour}): +${data.totalMinutes || 0} min`);
     });
 
     // Só horas extra manuais - não há horas extra automáticas a partir dos Registos
@@ -507,8 +526,6 @@ const getOvertimeSummary = async (req, res) => {
       });
 
     const totalNetOvertimeMinutes = Math.max(0, totalOvertimeMinutes - totalCompensatedMinutes);
-    // DEBUG horas extra
-    console.log(`[DEBUG horas extra] uid=${userId} ano=${currentYear}: bruto ${totalOvertimeMinutes} min - compensado ${totalCompensatedMinutes} min = ${totalOvertimeMinutes - totalCompensatedMinutes} min -> líquido (mín. 0) ${totalNetOvertimeMinutes} min`);
 
     return res.status(200).json({
       monthlyOvertime: monthlyArray,
@@ -522,6 +539,36 @@ const getOvertimeSummary = async (req, res) => {
 
   } catch (error) {
     console.error("Erro ao buscar resumo de horas extras:", error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+// Só o saldo anual de horas extra - o que /ponto (TotalSummary) e o detalhe do
+// colaborador (UserDetails) usam de /overtime-summary. Mesma fórmula e mesmos campos
+// totalNet* que getOvertimeSummary, mas sem ler todos os Registos do ano para o detalhe
+// mensal (monthlyOvertime), que nenhuma página usa: os Registos só contam para o saldo
+// através de horas_compensatorias (ver getCompensatedMinutesForYear).
+const getOvertimeBalance = async (req, res) => {
+  try {
+    const { year } = req.body;
+
+    const { uid: userId, error: authError } = await resolveTargetUid(req);
+    if (authError) return res.status(403).json({ error: authError });
+
+    const currentYear = year || new Date().getFullYear();
+    const { grossMinutes, compensatedMinutes } = await computeAnnualOvertimeBalance(userId, currentYear);
+    const totalNetOvertimeMinutes = Math.max(0, grossMinutes - compensatedMinutes);
+
+    return res.status(200).json({
+      totalOvertimeHours: formatarMinutosHelper(grossMinutes),
+      totalCompensatedHours: compensatedMinutes > 0 ? formatarMinutosHelper(compensatedMinutes) : null,
+      totalCompensatedMinutes: compensatedMinutes,
+      totalNetOvertimeHours: formatarMinutosHelper(totalNetOvertimeMinutes),
+      totalNetOvertimeMinutes,
+      year: currentYear
+    });
+  } catch (error) {
+    console.error("Erro ao buscar saldo de horas extra:", error);
     return res.status(500).json({ error: error.message });
   }
 };
@@ -862,6 +909,7 @@ function computeMonthlyAttendance({ year, month, assumeWorkedFrom, now, userCont
 module.exports = {
   getUserRecords,
   getOvertimeSummary,
+  getOvertimeBalance,
   getYearlySummary,
   calculateMonthlyAttendanceSummary,
   computeAnnualOvertimeBalance,

@@ -16,12 +16,12 @@ const RegistosPage = () => {
   // reloadTick é passado como prop normal (não como key), para que cada componente
   // decida por si quando recarregar os seus próprios dados, sem remontar.
   const [reloadTick, setReloadTick] = useState(0);
-  // Saldo anual de horas extra (TotalSummary -> /overtime-summary, que lê os Registos do
-  // ano inteiro): só recarrega quando o que mudou o pode alterar - ver
-  // handleEntryRegistered. Todas as outras recargas continuam a atualizá-lo.
+  // Saldo anual de horas extra (TotalSummary -> /overtime-balance): só recarrega quando
+  // o que mudou o pode alterar - ver handleEntryRegistered. Todas as outras recargas
+  // continuam a atualizá-lo.
   const [overtimeReloadTick, setOvertimeReloadTick] = useState(0);
   // Saldo anual líquido de horas extra (vem da TotalSummary, que já pede
-  // /overtime-summary) - passado à PontoTable para o botão "Compensar".
+  // /overtime-balance) - passado à PontoTable para o botão "Compensar".
   const [saldoHorasExtra, setSaldoHorasExtra] = useState(undefined);
   const reloadRegistos = () => {
     setReloadTick(k => k + 1);

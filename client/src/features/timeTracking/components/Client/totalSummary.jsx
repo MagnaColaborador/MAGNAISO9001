@@ -193,7 +193,9 @@ const TotaisSummary = ({ username, month = new Date().getMonth() + 1, reloadTick
 
   // Saldo anual de horas extra: bruto acumulado (meses nunca reduzidos por faltas)
   // menos o que já foi usado para compensar dias curtos  -  cálculo único e
-  // autoritativo feito no backend (getOvertimeSummary/computeAnnualOvertimeBalance).
+  // autoritativo feito no backend (getOvertimeBalance/computeAnnualOvertimeBalance) -
+  // /overtime-balance em vez de /overtime-summary, que lia todos os Registos do ano
+  // para um detalhe mensal que esta página não usa.
   const overtimeTick = overtimeReloadTick ?? reloadTick;
   useEffect(() => {
     if (!username) return;
@@ -202,7 +204,7 @@ const TotaisSummary = ({ username, month = new Date().getMonth() + 1, reloadTick
     // Auto-serviço: nunca enviar "uid" aqui  -  username (UserContext) é o NOME
     // da pessoa, não o uid do Firebase; sem "uid" no corpo, o backend usa
     // sempre req.user.uid (resolveTargetUid).
-    apiFetch(`/timetracking/overtime-summary`, {
+    apiFetch(`/timetracking/overtime-balance`, {
       method: 'POST',
       body: JSON.stringify({ year: currentYear }),
     })

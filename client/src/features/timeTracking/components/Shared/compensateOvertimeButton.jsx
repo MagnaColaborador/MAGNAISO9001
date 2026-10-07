@@ -23,7 +23,7 @@ const formatDiaCompensar = (date) => {
 // BirthdayButton) - nunca o "username" do UserContext, que é o NOME da
 // pessoa, não o uid do Firebase.
 // saldoMinutos: saldo anual de horas extra disponível (totalNetOvertimeMinutes de
-// /overtime-summary). Sem saldo (ou ainda a carregar) o botão não aparece; com
+// /overtime-balance). Sem saldo (ou ainda a carregar) o botão não aparece; com
 // saldo, o máximo a compensar é o menor entre o défice do dia e o saldo.
 // Modo controlado ("aberto" definido): não mostra o botão, só o modal enquanto "aberto"
 // for true - usado pela ação "Compensar horas" do menu de contexto das tabelas de ponto,

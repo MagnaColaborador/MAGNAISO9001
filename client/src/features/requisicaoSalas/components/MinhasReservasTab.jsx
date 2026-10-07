@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 import { apiFetch } from "../../../shared/utils/apiFetch";
-import { FaCalendarCheck, FaDoorOpen, FaLocationDot, FaClockRotateLeft, FaAlignLeft, FaXmark } from "react-icons/fa6";
+import { FaCalendarCheck, FaDoorOpen, FaLocationDot, FaClockRotateLeft, FaAlignLeft, FaXmark, FaPen } from "react-icons/fa6";
 import { Botao, Cartao, ConfirmModal, EstadoBadge, Vazio } from "./ui";
+import AlterarReservaModal from "./AlterarReservaModal";
 import { GOLD, formatarData, formatarDataLonga, hoje, somarDias, jaPassou, lerJson, toMin } from "../salasUtils";
 
 // Estado mostrado: "ativa" divide-se em ativa/a decorrer/concluída consoante a hora.
@@ -36,8 +37,9 @@ const diaDe = (data) => {
   };
 };
 
-export default function MinhasReservasTab({ reservas: proximas, aCarregar: proximasACarregar, onAlterada }) {
+export default function MinhasReservasTab({ estrutura, reservas: proximas, aCarregar: proximasACarregar, onAlterada }) {
   const [aCancelar, setACancelar] = useState(null);
+  const [aEditar, setAEditar] = useState(null);
   const [aProcessar, setAProcessar] = useState(false);
   const [periodo, setPeriodo] = useState("proximas");
   // Reservas de dias anteriores: só pedidas quando o separador é aberto, uma vez (não mudam).
@@ -204,9 +206,14 @@ export default function MinhasReservasTab({ reservas: proximas, aCarregar: proxi
                       <div className="flex items-center gap-2 sm:justify-end shrink-0">
                         <EstadoBadge estado={estado} />
                         {estado === "ativa" && (
-                          <Botao variante="fantasma" className="px-2.5 py-1.5 text-xs !text-red-600 hover:!bg-red-50" onClick={() => setACancelar(r)}>
-                            <FaXmark style={{ fontSize: 11 }} /> Cancelar
-                          </Botao>
+                          <>
+                            <Botao variante="fantasma" className="px-2.5 py-1.5 text-xs" onClick={() => setAEditar(r)}>
+                              <FaPen style={{ fontSize: 10 }} /> Editar
+                            </Botao>
+                            <Botao variante="fantasma" className="px-2.5 py-1.5 text-xs !text-red-600 hover:!bg-red-50" onClick={() => setACancelar(r)}>
+                              <FaXmark style={{ fontSize: 11 }} /> Cancelar
+                            </Botao>
+                          </>
                         )}
                       </div>
                     </li>
@@ -217,6 +224,15 @@ export default function MinhasReservasTab({ reservas: proximas, aCarregar: proxi
           );
         })}
       </div>
+
+      {aEditar && (
+        <AlterarReservaModal
+          reserva={aEditar}
+          salas={(estrutura?.salas || []).filter((s) => s.sede === aEditar.sede && s.ativa)}
+          onClose={() => setAEditar(null)}
+          onConcluido={() => { setAEditar(null); onAlterada(); }}
+        />
+      )}
 
       {aCancelar && (
         <ConfirmModal

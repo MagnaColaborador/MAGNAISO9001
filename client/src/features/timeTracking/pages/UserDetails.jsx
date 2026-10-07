@@ -387,8 +387,9 @@ const UserDetails = ({ selectedUser }) => {
 
   const fetchTotaisAnuais = async () => {
     try {
-      // Buscar dados de horas extras do ano todo
-      const overtimeResponse = await apiFetch(`/timetracking/overtime-summary`, {
+      // Saldo anual de horas extra (/overtime-balance - só o saldo, sem ler todos os
+      // Registos do ano como /overtime-summary; ver getOvertimeBalance)
+      const overtimeResponse = await apiFetch(`/timetracking/overtime-balance`, {
         method: "POST",
         body: JSON.stringify({ uid: userName, year: selectedYear }),
       });
@@ -398,11 +399,6 @@ const UserDetails = ({ selectedUser }) => {
       if (overtimeResponse.ok) {
         const overtimeData = await overtimeResponse.json();
         // DEBUG horas extra
-        console.log("[DEBUG horas extra] uid:", userName, "ano:", selectedYear);
-        console.log("[DEBUG horas extra] bruto (HorasExtraManual):", overtimeData.totalOvertimeHours);
-        console.log("[DEBUG horas extra] compensado (horas_compensatorias):", overtimeData.totalCompensatedHours || "0h 0m", `(${overtimeData.totalCompensatedMinutes} min)`);
-        console.log("[DEBUG horas extra] líquido = max(0, bruto - compensado):", overtimeData.totalNetOvertimeHours, `(${overtimeData.totalNetOvertimeMinutes} min)`);
-        console.table(overtimeData.monthlyOvertime);
         // Saldo líquido (bruto menos o já usado a compensar dias curtos), o mesmo
         // valor que o colaborador vê em "Horas Extra (ano)" na totalSummary.jsx.
         totalExtras = overtimeData.totalNetOvertimeHours || "0h 0m";
@@ -449,7 +445,7 @@ const UserDetails = ({ selectedUser }) => {
 
       if (response.ok) {
         // Só recarrega a lista de pendentes - "Totais anuais" (yearly-summary +
-        // overtime-summary) é caro de recalcular (percorre o ano inteiro) só para
+        // overtime-balance) é caro de recalcular (percorre o ano inteiro) só para
         // refletir 1 dia aprovado; fica atualizado no próximo carregamento completo
         // da página (troca de ano/colaborador), tal como aceite na auditoria de leituras.
         await fetchFeriasPendentes(); // Recarregar a lista

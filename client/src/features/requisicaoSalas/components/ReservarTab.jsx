@@ -2,13 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { toast } from "react-toastify";
 import {
   FaLocationDot, FaDoorOpen, FaCircleCheck, FaTriangleExclamation, FaCalendarDays, FaClock, FaPlus,
-  FaChevronLeft, FaChevronRight, FaXmark, FaAlignLeft, FaClockRotateLeft, FaHandPointer,
+  FaChevronLeft, FaChevronRight, FaXmark, FaClockRotateLeft, FaHandPointer,
 } from "react-icons/fa6";
-import UserAvatar from "../../../shared/components/UserAvatar";
 import { apiFetch } from "../../../shared/utils/apiFetch";
 import { getNomeCurto } from "../../../shared/utils/nomeCurto";
-import { Botao, Campo, Cartao, Modal, Rotulo, TabelaDia, Vazio, selectClass, useEscape } from "./ui";
+import { Botao, Campo, Cartao, ConfirmModal, Rotulo, TabelaDia, Vazio, selectClass, useEscape } from "./ui";
 import ConflitoModal from "./ConflitoModal";
+import AlterarReservaModal from "./AlterarReservaModal";
+import DetalheReservaModal from "./DetalheReservaModal";
 import { useLocaisTrabalho } from "../../../shared/hooks/useLocaisTrabalho";
 import {
   GOLD, HORAS, HORA_ABERTURA, HORA_FECHO, PASSO_MINUTOS, toMin, fromMin, hoje, somarDias, formatarDataLonga,
@@ -39,11 +40,54 @@ const dataObj = (data) => {
 };
 const isoDe = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 const SEMANA = ["S", "T", "Q", "Q", "S", "S", "D"];
+// Segunda-feira da semana de uma data.
+const segundaDe = (data) => somarDias(data, -((dataObj(data).getDay() + 6) % 7));
+const tituloSemana = (inicio) => {
+  const fim = somarDias(inicio, 6);
+  const a = dataObj(inicio);
+  const b = dataObj(fim);
+  const mesLongo = (d) => d.toLocaleDateString("pt-PT", { month: "long" });
+  if (a.getMonth() === b.getMonth()) return `${a.getDate()} – ${b.getDate()} de ${mesLongo(b)} de ${b.getFullYear()}`;
+  if (a.getFullYear() === b.getFullYear()) return `${a.getDate()} de ${mesLongo(a)} – ${b.getDate()} de ${mesLongo(b)} de ${b.getFullYear()}`;
+  return `${formatarData(inicio)} – ${formatarData(fim)}`;
+};
+
+// Escala de horas à esquerda da agenda e linhas de hora/meia hora por trás das colunas.
+function EscalaHoras() {
+  return (
+    <div className="relative" style={{ height: ALTURA }}>
+      {HORAS_GRELHA.slice(0, -1).map((hh) => (
+        <span key={hh} className="absolute right-2 -translate-y-1/2 text-[11px] font-medium text-stone-400 tabular-nums" style={{ top: y(toMin(hh)) || 8 }}>
+          {hh}
+        </span>
+      ))}
+    </div>
+  );
+}
+function LinhasHoras() {
+  return (
+    <div
+      className="absolute top-0 right-0 pointer-events-none"
+      style={{
+        left: 64,
+        height: ALTURA,
+        backgroundImage: `repeating-linear-gradient(to bottom, #ECE9E4 0 1px, transparent 1px ${HORA_PX / 2}px, #F5F3F0 ${HORA_PX / 2}px ${HORA_PX / 2 + 1}px, transparent ${HORA_PX / 2 + 1}px ${HORA_PX}px)`,
+      }}
+    />
+  );
+}
+function ColunaACarregar() {
+  return (
+    <div className="border-l border-stone-200/70 p-2" style={{ height: ALTURA }}>
+      {[90, 180, 420].map((t, i) => <div key={i} className="rounded-lg bg-stone-100 animate-pulse" style={{ marginTop: i ? t / 3 : t / 2, height: 50 + i * 15 }} />)}
+    </div>
+  );
+}
 
 // Mini-calendário do mês (segunda a domingo). Os dias anteriores ficam acessíveis só
 // para consulta. Os dias com reservas no local escolhido ficam marcados com um ponto
-// (dourado quando inclui reservas suas).
-function MiniCalendario({ data, onEscolher, mes, onMudarMes, marcas, aCarregarMarcas }) {
+// (dourado quando inclui reservas suas). Na vista semanal, a semana mostrada fica realçada.
+function MiniCalendario({ data, onEscolher, mes, onMudarMes, marcas, aCarregarMarcas, semana = null }) {
   const [ano, m] = mes.split("-").map(Number);
   const primeiro = new Date(ano, m - 1, 1);
   const desvio = (primeiro.getDay() + 6) % 7;
@@ -78,9 +122,13 @@ function MiniCalendario({ data, onEscolher, mes, onMudarMes, marcas, aCarregarMa
           const eHoje = d === h;
           const passado = d < h;
           const marca = marcas?.[d];
+          const posSemana = semana ? semana.indexOf(d) : -1;
           return (
-            <button
+            <div
               key={d}
+              className={posSemana < 0 ? "" : `bg-[#F7EEDD] ${posSemana === 0 || i % 7 === 0 ? "rounded-l-full" : ""} ${posSemana === 6 || d.slice(8) === String(diasNoMes) ? "rounded-r-full" : ""}`}
+            >
+            <button
               type="button"
               onClick={() => onEscolher(d)}
               title={marca ? `${marca.reservas} reserva(s) em ${marca.salas} sala(s)${marca.propria ? ", inclui reservas suas" : ""}` : undefined}
@@ -97,6 +145,7 @@ function MiniCalendario({ data, onEscolher, mes, onMudarMes, marcas, aCarregarMa
                 />
               )}
             </button>
+            </div>
           );
         })}
       </div>
@@ -106,8 +155,9 @@ function MiniCalendario({ data, onEscolher, mes, onMudarMes, marcas, aCarregarMa
 
 // Coluna de uma sala na agenda vertical: reservas como blocos, a seleção atual como
 // bloco tracejado e a parte do dia que já passou sombreada. Com o rato pode-se arrastar
-// para escolher o horário; um toque/clique num espaço livre propõe 1 hora.
-function ColunaSala({ sala, reservas, selecao, conflito, passadoAteMin, ativa, bloqueada, onSelecionar, onVerReserva, reservaAberta }) {
+// para escolher o horário; um toque/clique num espaço livre propõe 1 hora. Na vista
+// semanal cada coluna é um dia da mesma sala e a de hoje desenha a sua linha "agora".
+function ColunaSala({ sala, reservas, selecao, conflito, passadoAteMin, ativa, bloqueada, onSelecionar, onVerReserva, reservaAberta, linhaAgora = null }) {
   const ref = useRef(null);
   const arrasto = useRef(null);
   const tipoPonteiro = useRef(null);
@@ -182,9 +232,20 @@ function ColunaSala({ sala, reservas, selecao, conflito, passadoAteMin, ativa, b
         />
       )}
 
+      {linhaAgora != null && (
+        <div className="absolute inset-x-0 h-0.5 bg-red-500 pointer-events-none" style={{ top: y(linhaAgora), zIndex: 4 }}>
+          <span className="absolute -left-1 -top-[3px] w-2 h-2 rounded-full bg-red-500" />
+        </div>
+      )}
+
       {reservas.map((r) => {
         const alto = y(toMin(r.fim)) - y(toMin(r.inicio));
         const aberta = reservaAberta === r.id;
+        // A descrição usa o espaço que houver: blocos curtos mostram-na na mesma linha
+        // (cortada), blocos de 1h ou mais em linhas próprias, tantas quantas couberem.
+        const espaco = alto - 10;
+        const linhasDescricao = Math.min(6, Math.floor((espaco - 29) / 15));
+        const nome = r.propria ? "A sua reserva" : getNomeCurto(r.nome);
         return (
           <button
             key={r.id}
@@ -202,9 +263,28 @@ function ColunaSala({ sala, reservas, selecao, conflito, passadoAteMin, ativa, b
             }}
             title={`${r.inicio}–${r.fim} · ${r.nome}${r.descricao ? ` · ${r.descricao}` : ""}`}
           >
-            <span className="text-[12px] font-bold truncate leading-tight">{r.propria ? "A sua reserva" : getNomeCurto(r.nome)}</span>
-            {alto >= 34 && <span className="text-[11px] opacity-80 tabular-nums leading-tight">{r.inicio} – {r.fim}</span>}
-            {alto >= 64 && r.descricao && <span className="text-[11px] opacity-75 leading-snug mt-0.5 line-clamp-2">{r.descricao}</span>}
+            {espaco < 28 ? (
+              <span className="text-[12px] truncate leading-tight">
+                <span className="font-bold">{nome}</span>
+                {r.descricao && <span className="opacity-75"> · {r.descricao}</span>}
+              </span>
+            ) : (
+              <>
+                <span className="text-[12px] font-bold truncate leading-tight">{nome}</span>
+                <span className="text-[11px] opacity-80 leading-tight truncate">
+                  <span className="tabular-nums">{r.inicio} – {r.fim}</span>
+                  {r.descricao && linhasDescricao < 1 && <span> · {r.descricao}</span>}
+                </span>
+                {r.descricao && linhasDescricao >= 1 && (
+                  <span
+                    className="text-[11px] opacity-75 leading-snug mt-0.5 break-words"
+                    style={{ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: linhasDescricao, overflow: "hidden" }}
+                  >
+                    {r.descricao}
+                  </span>
+                )}
+              </>
+            )}
           </button>
         );
       })}
@@ -378,7 +458,7 @@ function PainelReserva({
   );
 }
 
-export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada, onPedidoEnviado }) {
+export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada, onPedidoEnviado, onReservaAlterada }) {
   // Locais de trabalho: os mesmos do Cadastro, vindos do backend (com cache partilhada).
   const { nomes: locais, aCarregar: locaisACarregar } = useLocaisTrabalho();
   const [sede, setSede] = useState("");
@@ -388,9 +468,19 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
   const [fim, setFim] = useState("");
   const [descricao, setDescricao] = useState("");
   const [painel, setPainel] = useState(false);
-  // Reserva aberta no modal de detalhes ({ salaId, id }).
+  // Reserva aberta no modal de detalhes ({ salaId, id, data }).
   const [detalhe, setDetalhe] = useState(null);
-  const [ocupacao, setOcupacao] = useState(null);
+  // Reserva própria a editar / a cancelar a partir do modal de detalhes.
+  const [aEditar, setAEditar] = useState(null);
+  const [aCancelar, setACancelar] = useState(null);
+  const [aCancelarProcessar, setACancelarProcessar] = useState(false);
+  const [ocupacaoDia, setOcupacaoDia] = useState(null);
+  // Vista da agenda: "semana" (uma sala, 7 dias - a vista por defeito ao abrir a página) ou
+  // "dia" (todas as salas num dia).
+  const [vista, setVista] = useState("semana");
+  // Ocupação da semana mostrada: { chave: "local|segunda", dias: { data: ocupação } }.
+  const [semanaDados, setSemanaDados] = useState(null);
+  const [semanaACarregar, setSemanaACarregar] = useState(false);
   const [aCarregar, setACarregar] = useState(false);
   const [aReservar, setAReservar] = useState(false);
   const [conflitos, setConflitos] = useState(null);
@@ -445,28 +535,59 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
   }, [sede, salas]);
 
   useEffect(() => {
-    // Sem salas neste local não há ocupação para ler - evita um read inútil.
-    if (!sede || !data || !salaIdsParam) return;
+    // Sem salas neste local não há ocupação para ler - evita um read inútil. Na vista
+    // semanal a ocupação vem da leitura da semana (que também enche esta cache).
+    if (vista !== "dia" || !sede || !data || !salaIdsParam) return;
     const chave = `${sede}|${data}`;
     if (cache.current.has(chave)) {
-      setOcupacao(cache.current.get(chave));
+      setOcupacaoDia(cache.current.get(chave));
       return;
     }
     let cancelado = false;
     setACarregar(true);
-    setOcupacao(null);
+    setOcupacaoDia(null);
     apiFetch(`/reservas-salas/ocupacao?salaIds=${encodeURIComponent(salaIdsParam)}&data=${data}`)
       .then(async (res) => {
         const body = await lerJson(res);
         if (cancelado) return;
         if (!res.ok) throw new Error(body.error || "Erro ao carregar a ocupação");
         cache.current.set(chave, body.ocupacao);
-        setOcupacao(body.ocupacao);
+        setOcupacaoDia(body.ocupacao);
       })
       .catch((e) => { if (!cancelado) toast.error(e.message); })
       .finally(() => { if (!cancelado) setACarregar(false); });
     return () => { cancelado = true; };
-  }, [sede, data, salaIdsParam, recarregar]);
+  }, [vista, sede, data, salaIdsParam, recarregar]);
+
+  // Vista semanal: uma leitura para os 7 dias (só se algum ainda não estiver na cache
+  // diária); cada dia lido fica na cache diária, por isso voltar à vista de dia é imediato.
+  const inicioSemana = segundaDe(data);
+  const chaveSemana = `${sede}|${inicioSemana}`;
+  useEffect(() => {
+    if (vista !== "semana" || !sede || !salaIdsParam) return;
+    const datas = Array.from({ length: 7 }, (_, i) => somarDias(inicioSemana, i));
+    const daCache = () => ({ chave: `${sede}|${inicioSemana}`, dias: Object.fromEntries(datas.map((d) => [d, cache.current.get(`${sede}|${d}`)])) });
+    if (datas.every((d) => cache.current.has(`${sede}|${d}`))) {
+      setSemanaDados(daCache());
+      return;
+    }
+    let cancelado = false;
+    setSemanaACarregar(true);
+    apiFetch(`/reservas-salas/ocupacao-semana?salaIds=${encodeURIComponent(salaIdsParam)}&inicio=${inicioSemana}`)
+      .then(async (res) => {
+        const body = await lerJson(res);
+        if (cancelado) return;
+        if (!res.ok) throw new Error(body.error || "Erro ao carregar a ocupação da semana");
+        datas.forEach((d) => cache.current.set(`${sede}|${d}`, body.dias?.[d] || {}));
+        setSemanaDados(daCache());
+      })
+      .catch((e) => { if (!cancelado) toast.error(e.message); })
+      .finally(() => { if (!cancelado) setSemanaACarregar(false); });
+    return () => { cancelado = true; };
+  }, [vista, sede, inicioSemana, salaIdsParam, recarregar]);
+
+  const semana = semanaDados?.chave === chaveSemana ? semanaDados.dias : null;
+  const ocupacao = vista === "semana" ? semana?.[data] || null : ocupacaoDia;
 
   useEffect(() => {
     // Sem salas neste local não há reservas para marcar - evita reads inúteis.
@@ -492,18 +613,44 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
     return () => { cancelado = true; };
   }, [sede, mes, salaIdsParam, recarregar]);
 
-  // Ao mudar de dia/local, posiciona a agenda perto da hora atual (hoje) ou das 8h.
+  // Ao mudar de dia/semana/local, posiciona a agenda perto da hora atual (se hoje estiver
+  // à vista) ou das 8h. Na semana, escolher outro dia não mexe no scroll.
+  const chaveScroll = vista === "semana" ? `s|${inicioSemana}` : `d|${data}`;
+  const comHoje = vista === "semana" ? segundaDe(hoje()) === inicioSemana : data === hoje();
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const alvo = data === hoje() ? Math.max(INICIO_MIN, agoraMin() - 60) : toMin("08:00");
+    const alvo = comHoje ? Math.max(INICIO_MIN, agoraMin() - 60) : toMin("08:00");
     el.scrollTop = Math.max(0, y(alvo));
-  }, [data, sede, salas.length]);
+  }, [chaveScroll, comHoje, sede, salas.length]);
 
-  const invalidarDia = () => {
-    cache.current.delete(`${sede}|${data}`);
-    cacheMes.current.delete(`${sede}|${data.slice(0, 7)}`);
+  const invalidarDias = (datas) => {
+    datas.forEach((d) => {
+      cache.current.delete(`${sede}|${d}`);
+      cacheMes.current.delete(`${sede}|${d.slice(0, 7)}`);
+    });
     setRecarregar((n) => n + 1);
+  };
+  const invalidarDia = () => invalidarDias([data]);
+
+  const cancelarReserva = async () => {
+    setACancelarProcessar(true);
+    try {
+      const res = await apiFetch(`/reservas-salas/reservas/${aCancelar.salaId}/${aCancelar.data}/${aCancelar.id}`, { method: "DELETE" });
+      const body = await lerJson(res);
+      if (!res.ok) {
+        toast.error(body.error || "Não foi possível cancelar a reserva");
+        return;
+      }
+      toast.success("Reserva cancelada");
+      invalidarDias([aCancelar.data]);
+      setACancelar(null);
+      onReservaAlterada();
+    } catch {
+      toast.error("Erro de ligação ao servidor");
+    } finally {
+      setACancelarProcessar(false);
+    }
   };
 
   const reservasSala = (ocupacao && salaId && ocupacao[salaId]) || [];
@@ -512,10 +659,10 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
   const inicios = HORAS.slice(0, -1).filter((h) => !jaPassou(data, h));
   const fins = inicio ? HORAS.filter((h) => toMin(h) > toMin(inicio)) : [];
 
-  const escolherLivre = (seg) => {
+  const escolherLivre = (seg, dia = data) => {
     let ini = seg.inicio;
-    if (jaPassou(data, ini)) {
-      const prox = inicios.find((h) => toMin(h) >= toMin(seg.inicio));
+    if (jaPassou(dia, ini)) {
+      const prox = HORAS.slice(0, -1).find((h) => toMin(h) >= toMin(seg.inicio) && !jaPassou(dia, h));
       if (!prox || toMin(prox) >= toMin(seg.fim)) return false;
       ini = prox;
     }
@@ -525,22 +672,25 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
   };
 
   // Seleção na agenda: arrastar define o horário exato; um clique num espaço livre
-  // propõe 1 hora a partir daí (arredondado à meia hora). Abre o painel de reserva.
-  const selecionarNaGrelha = (s, sel) => {
+  // propõe 1 hora a partir daí (arredondado à meia hora). Abre o painel de reserva. Na
+  // vista semanal "dia" é o dia da coluna, que passa a ser o dia escolhido.
+  const selecionarNaGrelha = (s, sel, dia = data) => {
     setSalaId(s.id);
+    setData(dia);
     if (sel.clique == null) {
-      const ini = inicios.find((h) => toMin(h) >= sel.ini);
+      const ini = HORAS.slice(0, -1).find((h) => toMin(h) >= sel.ini && !jaPassou(dia, h));
       if (!ini || toMin(ini) >= sel.fim) return;
       setInicio(ini);
       setFim(fromMin(sel.fim));
       setPainel(true);
       return;
     }
-    const reservas = (ocupacao && ocupacao[s.id]) || [];
+    const ocupacaoDoDia = vista === "semana" ? semana?.[dia] : ocupacao;
+    const reservas = (ocupacaoDoDia && ocupacaoDoDia[s.id]) || [];
     const seg = segmentosDoDia(reservas).find((x) => x.livre && toMin(x.inicio) <= sel.clique && sel.clique < toMin(x.fim));
     if (!seg) return;
     const arred = Math.max(toMin(seg.inicio), Math.floor(sel.clique / 30) * 30);
-    if (escolherLivre({ inicio: fromMin(arred), fim: seg.fim })) setPainel(true);
+    if (escolherLivre({ inicio: fromMin(arred), fim: seg.fim }, dia)) setPainel(true);
   };
 
   const reservar = async () => {
@@ -595,19 +745,26 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
   const eHoje = data === h;
   const diaPassado = data < h;
   const agora = agoraMin();
-  const passadoAteMin = diaPassado ? FECHO_MIN : eHoje ? Math.max(INICIO_MIN, Math.ceil(agora / PASSO_MINUTOS) * PASSO_MINUTOS) : INICIO_MIN;
-  const mostrarAgora = eHoje && agora > INICIO_MIN && agora < FECHO_MIN;
+  const passadoDe = (d) => (d < h ? FECHO_MIN : d === h ? Math.max(INICIO_MIN, Math.ceil(agora / PASSO_MINUTOS) * PASSO_MINUTOS) : INICIO_MIN);
+  const passadoAteMin = passadoDe(data);
+  const agoraNaGrelha = agora > INICIO_MIN && agora < FECHO_MIN;
+  const mostrarAgora = eHoje && agoraNaGrelha;
+  const semanal = vista === "semana";
+  const diasSemana = Array.from({ length: 7 }, (_, i) => somarDias(inicioSemana, i));
+  const salaSemana = sala || salas[0] || null;
+  const semanaPassada = somarDias(inicioSemana, 6) < h;
   const salaDetalhe = detalhe && salas.find((s) => s.id === detalhe.salaId);
-  const reservaDetalhe = detalhe && ocupacao && (ocupacao[detalhe.salaId] || []).find((r) => r.id === detalhe.id);
+  const ocupacaoDetalhe = detalhe && (vista === "semana" ? semana?.[detalhe.data] : ocupacao);
+  const reservaDetalhe = ocupacaoDetalhe && (ocupacaoDetalhe[detalhe.salaId] || []).find((r) => r.id === detalhe.id);
   const salasPorLocal = (l) => estrutura.salas.filter((s) => s.sede === l && s.ativa).length;
   const todas = ocupacao ? salas.flatMap((s) => ocupacao[s.id] || []) : [];
   const livresAgora = ocupacao && eHoje ? salas.filter((s) => !(ocupacao[s.id] || []).some((r) => toMin(r.inicio) <= agora && agora < toMin(r.fim))).length : null;
   const minhasHoje = todas.filter((r) => r.propria).length;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-5 items-start">
+    <div className="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-5">
       {/* ---------- Coluna lateral: local, calendário, resumo ---------- */}
-      <div className="space-y-5 lg:sticky lg:top-[70px]">
+      <div className="space-y-5 lg:self-start lg:sticky lg:top-[70px]">
         <Cartao className="p-2">
           <Rotulo icon={FaLocationDot} className="px-3 pt-2 pb-2">Local de trabalho</Rotulo>
           <div className="flex lg:flex-col gap-1 overflow-x-auto">
@@ -639,6 +796,7 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
             onMudarMes={setMes}
             marcas={salas.length ? marcas : null}
             aCarregarMarcas={salas.length > 0 && marcasACarregar}
+            semana={semanal ? diasSemana : null}
           />
           {salas.length > 0 && (
             <div className="mt-3 pt-3 border-t border-stone-100 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-stone-500">
@@ -650,7 +808,7 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
 
         {salas.length > 0 && (
           <Cartao className="p-5">
-            <Rotulo icon={FaCalendarDays} className="mb-4">Resumo do dia</Rotulo>
+            <Rotulo icon={FaCalendarDays} className="mb-4">{semanal ? `Resumo de ${formatarData(data)}` : "Resumo do dia"}</Rotulo>
             <div className="grid grid-cols-3 lg:grid-cols-1 gap-3">
               {[
                 ["Reservas", ocupacao ? todas.length : "–"],
@@ -672,126 +830,215 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
         )}
       </div>
 
-      {/* ---------- Agenda do dia ---------- */}
-      <Cartao className="overflow-hidden min-w-0">
+      {/* ---------- Agenda (dia ou semana) ---------- */}
+      <Cartao className="overflow-hidden min-w-0 flex flex-col">
         <div className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-5 py-4 border-b border-stone-100">
           <div className="flex items-center gap-3 min-w-0">
             <div className="flex items-center rounded-lg border border-stone-200 overflow-hidden shrink-0">
-              <button type="button" title="Dia anterior" onClick={() => setData((d) => somarDias(d, -1))} className="w-9 h-9 flex items-center justify-center bg-white border-0 text-stone-500 hover:bg-stone-50 hover:text-stone-900 cursor-pointer">
+              <button type="button" title={semanal ? "Semana anterior" : "Dia anterior"} onClick={() => setData((d) => somarDias(d, semanal ? -7 : -1))} className="w-9 h-9 flex items-center justify-center bg-white border-0 text-stone-500 hover:bg-stone-50 hover:text-stone-900 cursor-pointer">
                 <FaChevronLeft style={{ fontSize: 11 }} />
               </button>
               <button type="button" onClick={() => setData(h)} disabled={eHoje} className="h-9 px-3 text-xs font-bold bg-white border-0 border-x border-solid border-stone-200 text-stone-700 hover:bg-stone-50 cursor-pointer disabled:text-stone-300 disabled:cursor-default disabled:hover:bg-white">
                 Hoje
               </button>
-              <button type="button" title="Dia seguinte" onClick={() => setData((d) => somarDias(d, 1))} className="w-9 h-9 flex items-center justify-center bg-white border-0 text-stone-500 hover:bg-stone-50 hover:text-stone-900 cursor-pointer">
+              <button type="button" title={semanal ? "Semana seguinte" : "Dia seguinte"} onClick={() => setData((d) => somarDias(d, semanal ? 7 : 1))} className="w-9 h-9 flex items-center justify-center bg-white border-0 text-stone-500 hover:bg-stone-50 hover:text-stone-900 cursor-pointer">
                 <FaChevronRight style={{ fontSize: 11 }} />
               </button>
             </div>
             <div className="min-w-0">
-              <h2 className="m-0 text-lg font-bold text-stone-900 first-letter:uppercase truncate">{formatarDataLonga(data)}</h2>
+              <h2 className="m-0 text-lg font-bold text-stone-900 first-letter:uppercase truncate">
+                {semanal ? tituloSemana(inicioSemana) : formatarDataLonga(data)}
+              </h2>
               <p className="m-0 text-xs text-stone-500 truncate">
-                {sede}{diaPassado ? " · dia anterior, só para consulta" : ""}
+                {sede}
+                {semanal && salaSemana ? ` · ${salaSemana.nome}` : ""}
+                {(semanal ? semanaPassada : diaPassado) ? ` · ${semanal ? "semana" : "dia"} anterior, só para consulta` : ""}
               </p>
             </div>
           </div>
-          {!diaPassado && salas.length > 0 && (
-            <Botao onClick={() => setPainel(true)}>
-              <FaPlus style={{ fontSize: 11 }} /> Nova reserva
-            </Botao>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="inline-flex p-1 rounded-lg bg-stone-100" role="tablist" aria-label="Vista da agenda">
+              {[["semana", "Semana"], ["dia", "Dia"]].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={vista === id}
+                  onClick={() => setVista(id)}
+                  className={`px-3 py-1 text-xs font-bold rounded-md border-0 cursor-pointer transition-all ${vista === id ? "bg-white text-stone-900 shadow-sm" : "bg-transparent text-stone-500 hover:text-stone-800"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {salas.length > 0 && (semanal || !diaPassado) && (
+              <Botao onClick={() => { if (data < h) setData(h); setPainel(true); }}>
+                <FaPlus style={{ fontSize: 11 }} /> <span className="hidden sm:inline">Nova reserva</span>
+              </Botao>
+            )}
+          </div>
         </div>
 
+        {semanal && salas.length > 0 && (
+          <div className="flex items-center gap-1.5 px-4 sm:px-5 py-2.5 border-b border-stone-100 overflow-x-auto">
+            <span className="text-xs font-semibold text-stone-500 shrink-0 mr-1">Sala</span>
+            {salas.map((s) => {
+              const ativa = s.id === salaSemana?.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setSalaId(s.id)}
+                  className={`shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border cursor-pointer transition-colors ${ativa ? "bg-stone-900 text-white border-stone-900" : "bg-white text-stone-600 border-stone-200 hover:border-stone-400"}`}
+                >
+                  <FaDoorOpen style={{ fontSize: 10, color: ativa ? "#E8C88A" : GOLD }} />
+                  {s.nome}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {!salas.length ? (
-          <Vazio icon={FaDoorOpen} titulo={`${sede} ainda não tem salas.`} texto="Escolha outro local de trabalho ou peça à Gestão de RH para adicionar salas." />
+          <div className="flex-1 flex items-center justify-center">
+            <Vazio icon={FaDoorOpen} titulo={`${sede} ainda não tem salas.`} texto="Escolha outro local de trabalho ou peça à Gestão de RH para adicionar salas." />
+          </div>
         ) : (
           <>
-            {!diaPassado && (
+            {!(semanal ? semanaPassada : diaPassado) && (
               <div className="hidden sm:flex items-center gap-2 px-5 py-2 text-xs text-stone-500 bg-stone-50/70 border-b border-stone-100">
                 <FaHandPointer style={{ fontSize: 11, color: GOLD }} />
-                Arraste numa coluna para escolher o horário, ou clique num espaço livre. Clique numa reserva para ver os detalhes.
+                {semanal
+                  ? "Arraste num dia para escolher o horário, ou clique num espaço livre. Clique no cabeçalho de um dia para ver todas as salas."
+                  : "Arraste numa coluna para escolher o horário, ou clique num espaço livre. Clique numa reserva para ver os detalhes."}
               </div>
             )}
-            <div ref={scrollRef} className="overflow-auto max-h-[calc(100vh-250px)] min-h-[420px]">
-              <div style={{ minWidth: 64 + salas.length * 150 }}>
-                {/* Cabeçalho das salas */}
-                <div className="grid sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-stone-200" style={{ gridTemplateColumns: `64px repeat(${salas.length}, minmax(150px, 1fr))` }}>
-                  <div />
-                  {salas.map((s) => {
-                    const res = ocupacao?.[s.id] || [];
-                    const ocupadaAgora = eHoje && res.some((r) => toMin(r.inicio) <= agora && agora < toMin(r.fim));
-                    const ativa = s.id === salaId && (painel || horario);
-                    return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => { setSalaId(s.id); if (!diaPassado) setPainel(true); }}
-                        className={`px-3 py-3 text-left border-0 border-l border-solid border-stone-200/70 cursor-pointer transition-colors ${ativa ? "bg-[#FFFAF0]" : "bg-transparent hover:bg-stone-50"}`}
-                        style={ativa ? { boxShadow: `inset 0 -2px 0 ${GOLD}` } : undefined}
-                      >
-                        <span className="flex items-center gap-2">
-                          <FaDoorOpen style={{ fontSize: 12, color: GOLD }} className="shrink-0" />
-                          <span className="text-sm font-bold text-stone-900 truncate">{s.nome}</span>
-                        </span>
-                        <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-stone-500">
-                          {eHoje && ocupacao && <span className={`w-1.5 h-1.5 rounded-full ${ocupadaAgora ? "bg-amber-500" : "bg-emerald-500"}`} />}
-                          {!ocupacao ? "…" : eHoje ? (ocupadaAgora ? "Ocupada agora" : "Livre agora") : res.length ? `${res.length} reserva(s)` : "Sem reservas"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Corpo: escala de horas + colunas */}
-                <div className="grid relative" style={{ gridTemplateColumns: `64px repeat(${salas.length}, minmax(150px, 1fr))` }}>
-                  <div className="relative" style={{ height: ALTURA }}>
-                    {HORAS_GRELHA.slice(0, -1).map((hh) => (
-                      <span key={hh} className="absolute right-2 -translate-y-1/2 text-[11px] font-medium text-stone-400 tabular-nums" style={{ top: y(toMin(hh)) || 8 }}>
-                        {hh}
-                      </span>
-                    ))}
+            {/* A agenda ocupa a altura toda da linha (acaba junto com a coluna lateral, ou mais
+                abaixo em ecrãs altos); o scroll é absoluto para o conteúdo não esticar o cartão. */}
+            <div className="relative flex-1 min-h-[480px] lg:min-h-[calc(100vh-300px)]">
+            <div ref={scrollRef} className="absolute inset-0 overflow-auto">
+              {semanal ? (
+                <div style={{ minWidth: 64 + 7 * 110 }}>
+                  {/* Cabeçalho dos dias */}
+                  <div className="grid sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-stone-200" style={{ gridTemplateColumns: "64px repeat(7, minmax(110px, 1fr))" }}>
+                    <div />
+                    {diasSemana.map((d) => {
+                      const eHojeD = d === h;
+                      const escolhido = d === data;
+                      const n = semana?.[d]?.[salaSemana?.id]?.length || 0;
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => { setData(d); setVista("dia"); }}
+                          title="Ver este dia com todas as salas"
+                          className={`px-2 py-2.5 text-center border-0 border-l border-solid border-stone-200/70 cursor-pointer transition-colors ${escolhido ? "bg-[#FFFAF0]" : "bg-transparent hover:bg-stone-50"}`}
+                          style={escolhido ? { boxShadow: `inset 0 -2px 0 ${GOLD}` } : undefined}
+                        >
+                          <span className={`block text-[11px] font-bold uppercase tracking-wide ${eHojeD ? "text-[#B8892A]" : d < h ? "text-stone-300" : "text-stone-400"}`}>
+                            {dataObj(d).toLocaleDateString("pt-PT", { weekday: "short" }).replace(".", "")}
+                          </span>
+                          <span
+                            className={`mx-auto mt-0.5 w-8 h-8 rounded-full flex items-center justify-center text-base font-bold tabular-nums ${eHojeD ? "text-white" : d < h ? "text-stone-400" : "text-stone-900"}`}
+                            style={eHojeD ? { background: GOLD } : undefined}
+                          >
+                            {dataObj(d).getDate()}
+                          </span>
+                          <span className="block text-[10px] text-stone-400 mt-0.5">{!semana ? "…" : n ? `${n} reserva(s)` : "Livre"}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                  {/* Linhas de hora / meia hora por trás das colunas */}
-                  <div
-                    className="absolute top-0 right-0 pointer-events-none"
-                    style={{
-                      left: 64,
-                      height: ALTURA,
-                      backgroundImage: `repeating-linear-gradient(to bottom, #ECE9E4 0 1px, transparent 1px ${HORA_PX / 2}px, #F5F3F0 ${HORA_PX / 2}px ${HORA_PX / 2 + 1}px, transparent ${HORA_PX / 2 + 1}px ${HORA_PX}px)`,
-                    }}
-                  />
-                  {aCarregar || !ocupacao ? (
-                    salas.map((s) => (
-                      <div key={s.id} className="border-l border-stone-200/70 p-2 space-y-3" style={{ height: ALTURA }}>
-                        {[90, 180, 420].map((t, i) => <div key={i} className="rounded-lg bg-stone-100 animate-pulse" style={{ marginTop: i ? t / 3 : t / 2, height: 50 + i * 15 }} />)}
-                      </div>
-                    ))
-                  ) : (
-                    salas.map((s) => (
-                      <ColunaSala
-                        key={s.id}
-                        sala={s}
-                        reservas={ocupacao[s.id] || []}
-                        selecao={s.id === salaId ? horario : null}
-                        conflito={s.id === salaId && conflitosAtuais.length > 0}
-                        passadoAteMin={passadoAteMin}
-                        ativa={s.id === salaId && !!(painel || horario)}
-                        bloqueada={diaPassado}
-                        onSelecionar={selecionarNaGrelha}
-                        onVerReserva={(r) => setDetalhe({ salaId: s.id, id: r.id })}
-                        reservaAberta={detalhe?.salaId === s.id ? detalhe.id : null}
-                      />
-                    ))
-                  )}
-                  {mostrarAgora && (
-                    <div className="absolute right-0 pointer-events-none z-[4] flex items-center" style={{ left: 0, top: y(agora) }}>
-                      <span className="w-[64px] pr-1.5 text-right">
-                        <span className="inline-block px-1.5 py-px rounded-md bg-red-500 text-white text-[10px] font-bold tabular-nums -translate-y-1/2">{fromMin(agora)}</span>
-                      </span>
-                      <span className="flex-1 h-0.5 bg-red-500 -translate-y-1/2" />
-                    </div>
-                  )}
+
+                  {/* Corpo: escala de horas + um dia por coluna */}
+                  <div className="grid relative" style={{ gridTemplateColumns: "64px repeat(7, minmax(110px, 1fr))" }}>
+                    <EscalaHoras />
+                    <LinhasHoras />
+                    {semanaACarregar || !semana || !salaSemana
+                      ? diasSemana.map((d) => <ColunaACarregar key={d} />)
+                      : diasSemana.map((d) => (
+                        <ColunaSala
+                          key={d}
+                          sala={salaSemana}
+                          reservas={semana[d]?.[salaSemana.id] || []}
+                          selecao={d === data && salaSemana.id === salaId ? horario : null}
+                          conflito={d === data && conflitosAtuais.length > 0}
+                          passadoAteMin={passadoDe(d)}
+                          ativa={d === data && !!(painel || horario)}
+                          bloqueada={d < h}
+                          onSelecionar={(s, sel) => selecionarNaGrelha(s, sel, d)}
+                          onVerReserva={(r) => setDetalhe({ salaId: salaSemana.id, id: r.id, data: d })}
+                          reservaAberta={detalhe?.data === d && detalhe?.salaId === salaSemana.id ? detalhe.id : null}
+                          linhaAgora={d === h && agoraNaGrelha ? agora : null}
+                        />
+                      ))}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div style={{ minWidth: 64 + salas.length * 150 }}>
+                  {/* Cabeçalho das salas */}
+                  <div className="grid sticky top-0 z-10 bg-white/95 backdrop-blur border-b border-stone-200" style={{ gridTemplateColumns: `64px repeat(${salas.length}, minmax(150px, 1fr))` }}>
+                    <div />
+                    {salas.map((s) => {
+                      const res = ocupacao?.[s.id] || [];
+                      const ocupadaAgora = eHoje && res.some((r) => toMin(r.inicio) <= agora && agora < toMin(r.fim));
+                      const ativa = s.id === salaId && (painel || horario);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => { setSalaId(s.id); if (!diaPassado) setPainel(true); }}
+                          className={`px-3 py-3 text-left border-0 border-l border-solid border-stone-200/70 cursor-pointer transition-colors ${ativa ? "bg-[#FFFAF0]" : "bg-transparent hover:bg-stone-50"}`}
+                          style={ativa ? { boxShadow: `inset 0 -2px 0 ${GOLD}` } : undefined}
+                        >
+                          <span className="flex items-center gap-2">
+                            <FaDoorOpen style={{ fontSize: 12, color: GOLD }} className="shrink-0" />
+                            <span className="text-sm font-bold text-stone-900 truncate">{s.nome}</span>
+                          </span>
+                          <span className="mt-0.5 flex items-center gap-1.5 text-[11px] text-stone-500">
+                            {eHoje && ocupacao && <span className={`w-1.5 h-1.5 rounded-full ${ocupadaAgora ? "bg-amber-500" : "bg-emerald-500"}`} />}
+                            {!ocupacao ? "…" : eHoje ? (ocupadaAgora ? "Ocupada agora" : "Livre agora") : res.length ? `${res.length} reserva(s)` : "Sem reservas"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Corpo: escala de horas + colunas */}
+                  <div className="grid relative" style={{ gridTemplateColumns: `64px repeat(${salas.length}, minmax(150px, 1fr))` }}>
+                    <EscalaHoras />
+                    <LinhasHoras />
+                    {aCarregar || !ocupacao ? (
+                      salas.map((s) => <ColunaACarregar key={s.id} />)
+                    ) : (
+                      salas.map((s) => (
+                        <ColunaSala
+                          key={s.id}
+                          sala={s}
+                          reservas={ocupacao[s.id] || []}
+                          selecao={s.id === salaId ? horario : null}
+                          conflito={s.id === salaId && conflitosAtuais.length > 0}
+                          passadoAteMin={passadoAteMin}
+                          ativa={s.id === salaId && !!(painel || horario)}
+                          bloqueada={diaPassado}
+                          onSelecionar={selecionarNaGrelha}
+                          onVerReserva={(r) => setDetalhe({ salaId: s.id, id: r.id, data })}
+                          reservaAberta={detalhe?.salaId === s.id ? detalhe.id : null}
+                        />
+                      ))
+                    )}
+                    {mostrarAgora && (
+                      <div className="absolute right-0 pointer-events-none z-[4] flex items-center" style={{ left: 0, top: y(agora) }}>
+                        <span className="w-[64px] pr-1.5 text-right">
+                          <span className="inline-block px-1.5 py-px rounded-md bg-red-500 text-white text-[10px] font-bold tabular-nums -translate-y-1/2">{fromMin(agora)}</span>
+                        </span>
+                        <span className="flex-1 h-0.5 bg-red-500 -translate-y-1/2" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             </div>
           </>
         )}
@@ -824,42 +1071,47 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
         />
       )}
 
-      {reservaDetalhe && salaDetalhe && (
-        <Modal
-          titulo={reservaDetalhe.propria ? "A sua reserva" : "Reserva"}
-          subtitulo={`${salaDetalhe.nome} · ${sede}`}
-          onClose={() => setDetalhe(null)}
-          largura="max-w-md"
-        >
-          <div className="flex items-center gap-3 mb-5">
-            <UserAvatar nome={reservaDetalhe.nome} size={44} fontSize={14} />
-            <div className="min-w-0">
-              <div className="text-xs text-stone-500">Reservado por</div>
-              <div className="text-base font-bold text-stone-900 truncate">{reservaDetalhe.nome}</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="rounded-xl bg-stone-50 px-4 py-3">
-              <div className="text-[11px] text-stone-500 flex items-center gap-1.5"><FaClock style={{ fontSize: 10 }} /> Horário</div>
-              <div className="text-base font-bold text-stone-900 tabular-nums">{reservaDetalhe.inicio} – {reservaDetalhe.fim}</div>
-              <div className="text-xs text-stone-500">{duracaoTxt(toMin(reservaDetalhe.fim) - toMin(reservaDetalhe.inicio))}</div>
-            </div>
-            <div className="rounded-xl bg-stone-50 px-4 py-3">
-              <div className="text-[11px] text-stone-500 flex items-center gap-1.5"><FaCalendarDays style={{ fontSize: 10 }} /> Data</div>
-              <div className="text-base font-bold text-stone-900 tabular-nums">{formatarData(data)}</div>
-              <div className="text-xs text-stone-500 first-letter:uppercase">{dataObj(data).toLocaleDateString("pt-PT", { weekday: "long" })}</div>
-            </div>
-          </div>
-          <div className="rounded-xl border border-stone-200 px-4 py-3">
-            <div className="text-[11px] text-stone-500 flex items-center gap-1.5 mb-1"><FaAlignLeft style={{ fontSize: 10 }} /> Descrição</div>
-            <div className={`text-sm whitespace-pre-wrap break-words ${reservaDetalhe.descricao ? "text-stone-800" : "text-stone-400 italic"}`}>
-              {reservaDetalhe.descricao || "Sem descrição"}
-            </div>
-          </div>
-          {reservaDetalhe.propria && (
-            <p className="m-0 mt-4 text-xs text-stone-500">Para cancelar, use o separador "As minhas reservas".</p>
-          )}
-        </Modal>
+      {reservaDetalhe && salaDetalhe && (() => {
+        const editavel = reservaDetalhe.propria && !jaPassou(detalhe.data, reservaDetalhe.inicio);
+        const propria = {
+          id: reservaDetalhe.id, salaId: detalhe.salaId, salaNome: salaDetalhe.nome, sede, data: detalhe.data,
+          inicio: reservaDetalhe.inicio, fim: reservaDetalhe.fim, descricao: reservaDetalhe.descricao,
+        };
+        return (
+          <DetalheReservaModal
+            reserva={reservaDetalhe}
+            salaNome={salaDetalhe.nome}
+            sede={sede}
+            data={detalhe.data}
+            onClose={() => setDetalhe(null)}
+            onEditar={editavel ? () => { setDetalhe(null); setAEditar(propria); } : undefined}
+            onCancelar={editavel ? () => { setDetalhe(null); setACancelar(propria); } : undefined}
+          />
+        );
+      })()}
+
+      {aEditar && (
+        <AlterarReservaModal
+          reserva={aEditar}
+          salas={salas}
+          onClose={() => setAEditar(null)}
+          onConcluido={(body) => {
+            invalidarDias([aEditar.data, body?.reserva?.data || aEditar.data]);
+            setAEditar(null);
+            onReservaAlterada();
+          }}
+        />
+      )}
+
+      {aCancelar && (
+        <ConfirmModal
+          titulo="Cancelar reserva"
+          mensagem={`Tem a certeza que pretende cancelar a reserva da ${aCancelar.salaNome} (${aCancelar.sede}) em ${formatarData(aCancelar.data)}, ${aCancelar.inicio}–${aCancelar.fim}?`}
+          confirmar="Cancelar reserva"
+          onConfirm={cancelarReserva}
+          onClose={() => setACancelar(null)}
+          aCarregar={aCancelarProcessar}
+        />
       )}
 
       {conflitos && sala && (
@@ -869,7 +1121,6 @@ export default function ReservarTab({ estrutura, versaoOcupacao, onReservaCriada
           data={data}
           horario={horario}
           conflitos={conflitos}
-          reservasDia={reservasSala}
           descricao={descricao.trim()}
           onClose={() => setConflitos(null)}
           onEnviado={(enviado) => {

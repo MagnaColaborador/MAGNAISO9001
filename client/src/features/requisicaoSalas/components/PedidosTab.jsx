@@ -5,7 +5,7 @@ import { getNomeCurto } from "../../../shared/utils/nomeCurto";
 import { FaInbox, FaPaperPlane, FaDoorOpen, FaArrowRightLong, FaLocationDot, FaCalendarDays } from "react-icons/fa6";
 import UserAvatar from "../../../shared/components/UserAvatar";
 import { Botao, Cartao, ConfirmModal, EstadoBadge, Vazio } from "./ui";
-import AceitarPedidoModal from "./AceitarPedidoModal";
+import AlterarReservaModal from "./AlterarReservaModal";
 import { GOLD, formatarData, horarioTxt, lerJson } from "../salasUtils";
 
 function Linha({ label, children }) {
@@ -145,9 +145,7 @@ export default function PedidosTab({ pedidos, aCarregar, onAlterado }) {
                 </div>
 
                 <div className="px-5 sm:px-6 pt-3">
-                  {p.descricao && <Linha label="Motivo">{p.descricao}</Linha>}
-                  {p.sugestao && <Linha label="Sugestão para si">{horarioTxt(p.sugestao)}</Linha>}
-                  {p.envolvidos.length > 1 && (
+                  {p.descricao && <Linha label="Motivo">{p.descricao}</Linha>}                  {p.envolvidos.length > 1 && (
                     <Linha label="Também envolve">
                       {p.envolvidos.filter((e) => e.reservaId !== p.reservaId).map((e) => `${getNomeCurto(e.donoNome)} (${e.inicio}–${e.fim})`).join(", ")}
                     </Linha>
@@ -222,10 +220,10 @@ export default function PedidosTab({ pedidos, aCarregar, onAlterado }) {
       )}
 
       {aAceitar && (
-        <AceitarPedidoModal
+        <AlterarReservaModal
           pedido={aAceitar}
           onClose={() => setAAceitar(null)}
-          onRespondido={() => { setAAceitar(null); onAlterado(); }}
+          onConcluido={() => { setAAceitar(null); onAlterado(); }}
         />
       )}
       {aRecusar && (

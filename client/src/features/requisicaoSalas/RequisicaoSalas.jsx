@@ -151,10 +151,12 @@ export default function RequisicaoSalas() {
                   versaoOcupacao={versaoOcupacao}
                   onReservaCriada={() => setMinhas(null)}
                   onPedidoEnviado={carregarPedidos}
+                  onReservaAlterada={() => { setMinhas(null); carregarPedidos(); }}
                 />
               </div>
               {tab === "minhas" && (
                 <MinhasReservasTab
+                  estrutura={estrutura}
                   reservas={minhas || []}
                   aCarregar={minhasACarregar || minhas === null}
                   onAlterada={() => { reservasMudaram(); carregarPedidos(); }}

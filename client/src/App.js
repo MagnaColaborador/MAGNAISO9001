@@ -288,7 +288,6 @@ function App() {
           path="/forgot-password"
           element={<FirstLogin mode="forgot" />}
         />
-
         {/* Livro de Ponto */}
         <Route
           path="/ponto"

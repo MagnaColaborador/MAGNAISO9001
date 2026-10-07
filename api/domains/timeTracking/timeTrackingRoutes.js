@@ -3,6 +3,7 @@ const router = express.Router();
 const { requireAuth, requireAdmin, requireAdminOrHR, requireAdminOrEntidadeAdmin } = require('../../shared/middleware/auth');
 const {
   createUser,
+  sendWelcomeEmailTest,
   userDetails,
   getUsersByEntity,
   updateUserDetails,
@@ -44,6 +45,7 @@ const {
 const {
   getUserRecords,
   getOvertimeSummary,
+  getOvertimeBalance,
   getYearlySummary,
 } = require('./reportsController');
 const { ping } = require('./utilsController');
@@ -91,6 +93,9 @@ router.post("/pending-time-edits", requireAuth, getPendingTimeEdits);
 router.post("/approve-time-edit", requireAuth, approveTimeEdit);
 router.post("/reject-time-edit", requireAuth, rejectTimeEdit);
 router.post("/overtime-summary", requireAuth, getOvertimeSummary);
+// Só o saldo anual de horas extra (o que /ponto e o detalhe do colaborador usam) - sem
+// ler todos os Registos do ano como /overtime-summary (ver getOvertimeBalance).
+router.post("/overtime-balance", requireAuth, getOvertimeBalance);
 router.post("/yearly-summary", requireAuth, getYearlySummary);
 router.post("/register-manual-overtime", requireAuth, registerManualOvertime);
 router.post("/get-manual-overtime", requireAuth, getManualOvertimeForMonth);
@@ -137,6 +142,9 @@ router.post("/vacation-carryover", requireAuth, requireAdminOrHR, setVacationCar
 // de SuperAdmin, tal como já não estavam disponíveis para GestorRH.
 router.post("/userDetails", requireAuth, requireAdminOrEntidadeAdmin, userDetails);
 router.post('/createUser', requireAuth, requireAdminOrEntidadeAdmin, createUser);
+// Só SuperAdmin: envia um email com conteúdo livre para qualquer endereço a partir da
+// conta no-reply - ferramenta de verificação, não faz parte do fluxo de criação de contas.
+router.post('/welcomeEmail/test', requireAuth, requireAdmin, sendWelcomeEmailTest);
 router.post("/byEntity", requireAuth, requireAdminOrEntidadeAdmin, getUsersByEntity);
 router.post("/updateUserDetails", requireAuth, requireAdminOrEntidadeAdmin, updateUserDetails);
 router.post("/approve-vacation", requireAuth, requireAdmin, approveVacation);

@@ -2,6 +2,7 @@ const admin = require("firebase-admin");
 const { normalizeUserId } = require("./helpers");
 const { normalizeEntityId } = require("../../shared/lib/normalizeEntityId");
 const { isSuperAdmin, isAdminOrHR, isGestorRH, isAdministrador, isGestorFinanceiro, entidadesGeridasPor, entidadeNoAmbito } = require("../../shared/middleware/auth");
+const { sendMail, renderEmail } = require("../../shared/services/mailer");
 const db = admin.firestore();
 
 // Únicos valores válidos para o nível de acesso (controla permissões). Distinto
@@ -47,6 +48,35 @@ async function resolveEntidadesGeridasNomes(refs) {
     }
   }));
   return nomes.filter(Boolean);
+}
+
+// Nome legível da entidade para o email de boas-vindas - o formulário envia o nome, mas
+// um Administrador envia o ID da sua; em ambos os casos lê o "nome" do doc da entidade e,
+// se não existir, mostra o valor recebido.
+async function resolveEntidadeNome(entidade) {
+  if (!entidade) return null;
+  try {
+    const entidadeDoc = await db.collection("entidades").doc(normalizeEntityId(entidade)).get();
+    return entidadeDoc.exists ? (entidadeDoc.data().nome || entidade) : entidade;
+  } catch (err) {
+    console.error("⚠️ Erro ao buscar entidade:", err);
+    return entidade;
+  }
+}
+
+async function sendWelcomeEmail({ to, nome, email, password, entidade, subjectPrefix = "" }) {
+  await sendMail({
+    to,
+    subject: `${subjectPrefix}Bem-vindo(a) à plataforma MAGNA ISO 9001`,
+    html: renderEmail("boas-vindas", {
+      nome,
+      email,
+      password,
+      entidadeNome: await resolveEntidadeNome(entidade),
+      eyebrow: "Boas-vindas",
+    }),
+    entidade: entidade ? `entidades/${normalizeEntityId(entidade)}` : null,
+  });
 }
 
 const createUser = async (req, res) => {
@@ -121,21 +151,61 @@ const createUser = async (req, res) => {
         nivelAcesso: normalizeNivelAcessoForActor(req.user?.nivelAcesso, nivelAcesso),
         isFirstLogin: true
       });
-
-      return res.status(201).json({
-        message: 'colaborador criado com sucesso',
-        id: userId
-      });
-
     } catch (firestoreError) {
       // Rollback: Apagar colaborador do Auth se o Firestore falhar
       await admin.auth().deleteUser(userId);
       throw firestoreError;
     }
 
+    // Email de boas-vindas (por omissão ligado; o formulário pode desligá-lo). Só é enviado
+    // depois de a conta existir e uma falha no envio nunca a desfaz - a resposta indica
+    // welcomeEmailSent: false para a interface avisar que o email não seguiu.
+    let welcomeEmailSent = null;
+    if (req.body.sendWelcomeEmail !== false) {
+      try {
+        await sendWelcomeEmail({ to: email, nome, email, password: temporaryPassword, entidade });
+        welcomeEmailSent = true;
+      } catch (mailError) {
+        console.error(`Erro ao enviar email de boas-vindas a ${email}:`, mailError);
+        welcomeEmailSent = false;
+      }
+    }
+
+    return res.status(201).json({
+      message: 'colaborador criado com sucesso',
+      id: userId,
+      welcomeEmailSent
+    });
+
   } catch (error) {
     console.error('Erro no processo completo:', error);
     return res.status(500).json({ error: 'Falha na criação do colaborador' });
+  }
+};
+
+// Envia o email de boas-vindas, com dados à escolha, para um endereço de teste - para
+// confirmar o aspeto antes de criar a conta. Não cria nem altera contas, por isso não
+// verifica se o email já está em uso. Sem password, mostra-a oculta.
+const sendWelcomeEmailTest = async (req, res) => {
+  try {
+    const { to, nome, email, password, entidade } = req.body;
+    if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      return res.status(400).json({ error: 'Indique um email de destino válido' });
+    }
+
+    await sendWelcomeEmail({
+      to,
+      nome: nome?.trim() || 'Nome do Colaborador',
+      email: email?.trim() || 'colaborador@exemplo.pt',
+      password: password?.trim() || '••••••••',
+      entidade: entidade?.trim() || (req.user?.entidade || '').replace('entidades/', '') || null,
+      subjectPrefix: '[Teste] ',
+    });
+
+    return res.json({ message: `Email de teste enviado para ${to}` });
+  } catch (error) {
+    console.error('Erro ao enviar email de boas-vindas de teste:', error);
+    return res.status(500).json({ error: error.message || 'Falha ao enviar o email de teste' });
   }
 };
 
@@ -407,6 +477,7 @@ const deleteUser = async (req, res) => {
 
 module.exports = {
   createUser,
+  sendWelcomeEmailTest,
   userDetails,
   getUsersByEntity,
   updateUserDetails,

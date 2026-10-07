@@ -73,7 +73,7 @@ export function segmentosDoDia(reservas) {
 
 // Opções válidas de início/fim dado um conjunto de blocos ocupados (e a data, para não
 // oferecer horas que já passaram). Usado na escolha do novo horário de quem aceita um
-// pedido e na sugestão de novo horário - só aparecem horários realmente possíveis.
+// pedido - só aparecem horários realmente possíveis.
 export function opcoesInicio(bloqueios, data) {
   return HORAS.slice(0, -1).filter((h) =>
     !jaPassou(data, h) && encontrarConflitos(bloqueios, { inicio: h, fim: fromMin(toMin(h) + PASSO_MINUTOS) }).length === 0

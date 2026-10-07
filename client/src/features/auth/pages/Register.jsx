@@ -8,11 +8,12 @@ import { FaEye, FaEyeSlash, FaCircleExclamation } from "react-icons/fa6";
 import { apiFetch } from '../../../shared/utils/apiFetch';
 import { UserContext } from '../../../shared/context/userContext';
 import AutocompleteInput from '../../../shared/components/AutocompleteInput';
+import WelcomeEmailTestModal from '../components/WelcomeEmailTestModal';
 import { FUNCAO } from '../../../shared/utils/formOptions';
 import { usePermissions } from '../../../shared/hooks/usePermissions';
 
 const Register = () => {
-    const { entidadeNome: actorEntidadeNome, entidadesGeridasNomes } = useContext(UserContext);
+    const { entidadeNome: actorEntidadeNome, entidadesGeridasNomes, userEmail } = useContext(UserContext);
     // Um Administrador só pode criar colaboradores dentro de uma entidade que gere e
     // nunca pode atribuir um nível de acesso igual ou superior ao seu  -  o backend
     // também impõe isto, mas mantemos o formulário coerente com o que vai ser aceite.
@@ -36,6 +37,8 @@ const Register = () => {
     const [entidadesLoading, setEntidadesLoading] = useState(true);
     const [message, setMessage] = useState('');
     const [loading, setLoading] = useState(false);
+    const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true);
+    const [showTestModal, setShowTestModal] = useState(false);
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -93,6 +96,7 @@ const Register = () => {
                     role,
                     nivelAcesso,
                     temporaryPassword: password,
+                    sendWelcomeEmail,
                 }),
             });
 
@@ -101,7 +105,14 @@ const Register = () => {
                 throw new Error(errorData.error || 'Erro ao criar utilizador');
             }
 
-            toast.success('Conta criada com sucesso!');
+            const data = await response.json();
+            if (data.welcomeEmailSent === false) {
+                toast.warning('Conta criada, mas o email de boas-vindas não foi enviado.');
+            } else if (data.welcomeEmailSent) {
+                toast.success('Conta criada e email de boas-vindas enviado!');
+            } else {
+                toast.success('Conta criada com sucesso!');
+            }
             setNome('');
             setEmail('');
             setPassword('');
@@ -286,6 +297,30 @@ const Register = () => {
                                     )}
                                 </div>
 
+                                <div className="flex flex-col gap-1.5 mb-4 last:mb-0">
+                                    <span className="text-[11px] font-bold text-gray-700 uppercase tracking-[0.7px]">Email de Boas-vindas</span>
+                                    <label htmlFor="reg-welcome" className="flex items-center gap-2 text-[13px] text-gray-700 cursor-pointer">
+                                        <input
+                                            id="reg-welcome"
+                                            type="checkbox"
+                                            className="w-4 h-4 accent-[#C8932F] cursor-pointer"
+                                            checked={sendWelcomeEmail}
+                                            onChange={(e) => setSendWelcomeEmail(e.target.checked)}
+                                        />
+                                        Enviar ao colaborador, com o email de acesso e a password temporária
+                                    </label>
+                                    {/* Teste só para SuperAdmin - o backend também o restringe (requireAdmin). */}
+                                    {isSuperAdmin && (
+                                        <button
+                                            type="button"
+                                            className="self-start mt-1 px-4 py-2 bg-white text-[#9C7A2E] border-[1.5px] border-[#e8d0a0] rounded-lg text-[13px] font-semibold cursor-pointer transition-all duration-150 hover:bg-[#fffbf0] hover:border-[#C8932F] max-sm:w-full"
+                                            onClick={() => setShowTestModal(true)}
+                                        >
+                                            Testar email de boas-vindas…
+                                        </button>
+                                    )}
+                                </div>
+
                                 <div className="flex gap-3 justify-end py-1 pb-2 max-sm:flex-col-reverse" style={{ marginTop: 8 }}>
                                     <button
                                         type="button"
@@ -317,6 +352,17 @@ const Register = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Fora do <form> de criação: o modal tem o seu próprio form, e o Enter lá dentro
+                só pode enviar o teste, nunca criar a conta. */}
+            {isSuperAdmin && showTestModal && (
+                <WelcomeEmailTestModal
+                    initialData={{ nome, email, password, entidade }}
+                    entidadeOptions={entidadeOptions}
+                    defaultTo={userEmail}
+                    onClose={() => setShowTestModal(false)}
+                />
+            )}
         </div>
     );
 };

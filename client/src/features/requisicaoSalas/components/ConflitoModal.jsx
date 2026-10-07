@@ -3,30 +3,19 @@ import { toast } from "react-toastify";
 import { apiFetch } from "../../../shared/utils/apiFetch";
 import { getNomeCurto } from "../../../shared/utils/nomeCurto";
 import { Modal, Botao, Campo, selectClass } from "./ui";
-import { formatarData, horarioTxt, opcoesInicio, opcoesFim, lerJson } from "../salasUtils";
+import { formatarData, horarioTxt, lerJson } from "../salasUtils";
 
 const juntarNomes = (nomes) =>
   nomes.length <= 1 ? nomes.join("") : `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 
 // Horário pretendido em conflito: em vez de só dizer "indisponível", explica quem tem a
 // sala e quando, e oferece perguntar ao(s) dono(s) se podem alterar o horário da reserva.
-export default function ConflitoModal({ sala, sede, data, horario, conflitos, reservasDia, descricao, onClose, onEnviado }) {
+export default function ConflitoModal({ sala, sede, data, horario, conflitos, descricao, onClose, onEnviado }) {
   const [mensagem, setMensagem] = useState("");
-  const [sugInicio, setSugInicio] = useState("");
-  const [sugFim, setSugFim] = useState("");
   const [aEnviar, setAEnviar] = useState(false);
 
   const propria = conflitos.find((c) => c.propria);
   const nomes = [...new Set(conflitos.map((c) => getNomeCurto(c.nome)))];
-  const unico = conflitos.length === 1 ? conflitos[0] : null;
-
-  // Sugestão (opcional, só com um conflito): horários onde a reserva do dono caberia sem
-  // tocar no horário pretendido nem em outras reservas.
-  const bloqueios = unico
-    ? [...reservasDia.filter((r) => r.id !== unico.id), { id: "__pretendido", ...horario }]
-    : [];
-  const iniciosSug = unico ? opcoesInicio(bloqueios, data) : [];
-  const finsSug = opcoesFim(bloqueios, sugInicio);
 
   const enviar = async () => {
     setAEnviar(true);
@@ -39,7 +28,6 @@ export default function ConflitoModal({ sala, sede, data, horario, conflitos, re
           ...horario,
           descricao,
           mensagem,
-          sugestao: unico && sugInicio && sugFim ? { inicio: sugInicio, fim: sugFim } : null,
         }),
       });
       const body = await lerJson(res);
@@ -83,26 +71,6 @@ export default function ConflitoModal({ sala, sede, data, horario, conflitos, re
             {" "}Nenhuma reserva é alterada sem a confirmação do respetivo dono.
           </p>
 
-          {unico && (
-            <div className="mb-4">
-              <span className="block text-xs font-semibold text-gray-500 mb-1">Sugerir novo horário para a reserva de {getNomeCurto(unico.nome)} (opcional)</span>
-              {iniciosSug.length ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <select className={selectClass} value={sugInicio} onChange={(e) => { setSugInicio(e.target.value); setSugFim(""); }}>
-                    <option value="">Início</option>
-                    {iniciosSug.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                  <select className={selectClass} value={sugFim} onChange={(e) => setSugFim(e.target.value)} disabled={!sugInicio}>
-                    <option value="">Fim</option>
-                    {finsSug.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
-                </div>
-              ) : (
-                <p className="text-xs text-gray-500 m-0">Não há outro horário livre nesta sala neste dia.</p>
-              )}
-            </div>
-          )}
-
           <Campo label="Mensagem (opcional)">
             <textarea
               className={`${selectClass} min-h-[70px]`}
@@ -115,7 +83,7 @@ export default function ConflitoModal({ sala, sede, data, horario, conflitos, re
 
           <div className="flex flex-wrap gap-2 justify-end mt-5">
             <Botao variante="secundario" onClick={onClose}>Voltar</Botao>
-            <Botao onClick={enviar} disabled={aEnviar || (sugInicio && !sugFim)}>
+            <Botao onClick={enviar} disabled={aEnviar}>
               {aEnviar ? "A enviar..." : "Perguntar se pode alterar o horário"}
             </Botao>
           </div>
