@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "madar": {
+      "command": "madar",
+      "args": [
+        "serve",
+        "--stdio",
+        "--auto-refresh"
+      ],
+      "env": {
+        "MADAR_TOOL_PROFILE": "core"
+      }
+    }
+  }
+}

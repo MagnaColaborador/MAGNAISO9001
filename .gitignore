@@ -1,0 +1,21 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+.claude
+
+# Ignorar node_modules nas pastas api e front-end
+api/node_modules/
+client/node_modules/
+
+# Ignorar arquivos .env
+*.env
+
+# Credencial Firebase Admin - nunca deve ser trackeada
+api/shared/db/serviceAccountKey.json
+
+# Output da migração do Livro de Ponto (contém emails e passwords temporárias)
+api/scripts/migration-output/
+
+# Grafo de contexto gerado pelo Madar (graphify-ts)
+out/
+
+.github\workflows\
