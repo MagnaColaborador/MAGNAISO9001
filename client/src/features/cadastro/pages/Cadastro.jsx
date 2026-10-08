@@ -23,7 +23,7 @@ import {
   SITUACAO_CONJUGAL_OPTIONS, GRAU_PARENTESCO_OPTIONS, IRS_JOVEM_OPTIONS,
   TIPO_CONTRATO_OPTIONS, SITUACAO_CONTRATUAL_OPTIONS, DEPARTAMENTO_OPTIONS,
   TIPO_BAIXA_OPTIONS, SITUACAO_CESSADO, MOTIVO_CESSACAO_OPTIONS,
-  TIPO_CONTRATO_SEM_TERMO,
+  TIPO_CONTRATO_A_TERMO_CERTO,
   TIPO_ESTAGIO_OPTIONS, TIPO_ESTAGIO_PROFISSIONAL, HABILITACOES_OPTIONS, FUNCAO,
 } from "../../../shared/utils/formOptions";
 
@@ -86,18 +86,15 @@ function formatDuracaoContrato(inicioStr, fimStr, hojeStr) {
   return formatAntiguidade(diferencaMesesDias(inicio, new Date(fim.getTime() + DIA_MS)).meses);
 }
 
-// Antiguidade total, em meses, a partir do contrato atual (data_admissao -> data_fim_contrato,
-// ou até hoje se não tiver fim) e dos contratos anteriores ({dataInicio, dataFim}). Não é uma
-// soma das durações: os períodos são unidos, por isso dias sobrepostos contam uma só vez e
-// intervalos sem contrato não contam. Datas de fim são inclusivas e limitadas a hoje (um
-// contrato com fim no futuro só conta até ao presente). Contratos anteriores sem data de
-// fim são ignorados (não dá para saber até quando duraram). null se não houver nenhum período.
-function calcularAntiguidadeMeses(form, contratosAnteriores, hojeStr) {
+// Antiguidade total, em meses, a partir da lista de contratos ({dataInicio, dataFim}). Não é
+// uma soma das durações: os períodos são unidos, por isso dias sobrepostos contam uma só vez
+// e intervalos sem contrato não contam. Datas de fim são inclusivas e limitadas a hoje (um
+// contrato com fim no futuro só conta até ao presente). Um contrato sem data de fim (sem
+// termo, ou a termo incerto ainda sem fim) conta até hoje. null se não houver nenhum período.
+function calcularAntiguidadeMeses(contratos, hojeStr) {
   const hoje = parseData(hojeStr);
-  const periodos = [
-    { inicio: form.data_admissao, fim: form.data_fim_contrato || hojeStr },
-    ...(contratosAnteriores || []).map(c => ({ inicio: c.dataInicio, fim: c.dataFim })),
-  ]
+  const periodos = (contratos || [])
+    .map(c => ({ inicio: c.dataInicio, fim: c.dataFim || hojeStr }))
     .map(p => {
       const inicio = parseData(p.inicio);
       const fim = parseData(p.fim);
@@ -198,31 +195,26 @@ const SECTIONS = [
     Icon: FaFileContract,
     restricted: true,
     fields: [
-      // Campos do contrato atual: "inBlock" tira-os da grelha da secção e mostra-os, em vez
-      // disso, como o último bloco da lista "Contratos de trabalho" (ver o campo "blocks"
-      // com currentKeys). Continuam a ser campos normais do documento do user.
-      { key: "tipo_contrato", label: "Tipo de contrato", type: "select", options: TIPO_CONTRATO_OPTIONS, inBlock: true },
       { key: "situacao_contratual", label: "Situação contratual", type: "select", options: SITUACAO_CONTRATUAL_OPTIONS },
-      { key: "antiguidade", label: "Antiguidade", type: "tenure", historyKey: "contratos_anteriores" },
+      { key: "antiguidade", label: "Antiguidade", type: "tenure", historyKey: "contratos" },
       { key: "motivo_cessacao", label: "Motivo da cessação", type: "select", options: MOTIVO_CESSACAO_OPTIONS, showIf: f => f.situacao_contratual === SITUACAO_CESSADO },
       { key: "role", label: "Função", type: "text", list: "funcao", newRow: true },
       { key: "departamento", label: "Departamento", type: "select", options: DEPARTAMENTO_OPTIONS },
       // Opções vindas do backend (GET /config/locais-trabalho, ver useLocaisTrabalho) - a
       // lista de locais de trabalho não existe no frontend.
       { key: "sede", label: "Local de trabalho", type: "select", optionsSource: "locaisTrabalho" },
-      { key: "data_admissao", label: "Data de admissão", type: "date", inBlock: true },
-      { key: "data_fim_contrato", label: "Data de fim de contrato", type: "date", showIf: f => f.tipo_contrato !== TIPO_CONTRATO_SEM_TERMO, inBlock: true },
-      { key: "digitalizacao_contrato", label: "Contrato (todas as páginas)", type: "file", storageName: "Contrato_Trabalho", inBlock: true },
-      // Contratos anteriores (subcoleção users/{id}/contratosAnteriores, um bloco por contrato)
-      // e, no fim da lista, o contrato atual, montado a partir dos campos "currentKeys" acima.
+      // Todos os contratos de trabalho, atual incluído (subcoleção users/{id}/contratos, um
+      // bloco por contrato). O backend resume a lista nos campos tipo_contrato/data_admissao/
+      // data_fim_contrato do documento do user, usados pelo mapa de férias e pelos relatórios
+      // (ver resumoContratos em api/domains/cadastro/contratos.js).
       {
-        key: "contratos_anteriores", label: "Contratos de trabalho", type: "blocks", apiKey: "contratosAnteriores",
-        storageFolder: "contratosAnteriores",
-        currentKeys: ["tipo_contrato", "data_admissao", "data_fim_contrato", "digitalizacao_contrato"],
+        key: "contratos", label: "Contratos de trabalho", type: "blocks", apiKey: "contratos",
+        storageFolder: "contratos",
         showDuracao: true,
-        itemSingular: "contrato", addLabel: "Adicionar contrato anterior", emptyLabel: "Sem contratos de trabalho registados",
+        itemSingular: "contrato", addLabel: "Adicionar contrato", emptyLabel: "Sem contratos de trabalho registados",
         tipoLabel: "Tipo de contrato", tipoOptions: TIPO_CONTRATO_OPTIONS,
-        entidadeLabel: "Entidade empregadora", list: "entidades",
+        // "entidadePadrao": um contrato novo já vem com a entidade do colaborador preenchida.
+        entidadeLabel: "Entidade empregadora", list: "entidades", entidadePadrao: true,
         dataFimLabel: "Data de fim", pdfName: "contrato", observacaoLabel: "Observação",
         sortByDataInicio: true,
       },
@@ -370,8 +362,6 @@ function getFieldErrors(form, docs) {
   if (form.ccp === true && !docs.digitalizacao_ccp) set("digitalizacao_ccp", "Documento obrigatório", false);
 
   if (form.situacao_contratual === SITUACAO_CESSADO && !form.motivo_cessacao) set("motivo_cessacao", "Obrigatório", false);
-  if (form.tipo_contrato && form.tipo_contrato !== TIPO_CONTRATO_SEM_TERMO && !form.data_fim_contrato) set("data_fim_contrato", "Obrigatório para este tipo de contrato", false);
-  if (form.data_fim_contrato && form.data_admissao && form.data_fim_contrato < form.data_admissao) set("data_fim_contrato", "Anterior à data de admissão", true);
 
   if (form.tipo_estagio === TIPO_ESTAGIO_PROFISSIONAL) {
     if (!form.n_processo_estagio) set("n_processo_estagio", "Obrigatório", false);
@@ -382,16 +372,21 @@ function getFieldErrors(form, docs) {
   return errors;
 }
 
-// Erros de validação dos campos "blocks" (cedências temporárias, baixas médicas): por
-// chave do campo, um mapa de id de bloco -> { message, blocking } (só a ordem das datas,
-// por agora - ver getFieldErrors para o que significa "blocking").
-function getBlockErrors(blockLists) {
+// Erros de validação dos campos "blocks" (cedências temporárias, baixas médicas, contratos):
+// por chave do campo, um mapa de id de bloco -> { message, blocking } (ordem das datas e,
+// nos contratos a termo certo, as duas datas preenchidas - ver getFieldErrors para o que significa
+// "blocking"). Ao contrário dos outros "obrigatório se X", um contrato a termo certo sem as duas
+// datas não se grava, mesmo numa ficha antiga  -  mas só trava quem pode editar os dados
+// contratuais (um colaborador a editar a sua própria ficha não tem como corrigir isto).
+function getBlockErrors(blockLists, podeEditarContrato) {
   const errors = {};
   BLOCK_FIELDS.forEach(f => {
     const porBloco = {};
     (blockLists[f.key] || []).forEach(b => {
       if (b.dataInicio && b.dataFim && b.dataFim < b.dataInicio) {
         porBloco[b.id] = { message: "Data de fim anterior à data de início", blocking: true };
+      } else if (b.tipo === TIPO_CONTRATO_A_TERMO_CERTO && (!b.dataInicio || !b.dataFim)) {
+        porBloco[b.id] = { message: "Contrato a termo certo: indique a data de início e a de fim", blocking: podeEditarContrato };
       }
     });
     if (Object.keys(porBloco).length > 0) errors[f.key] = porBloco;
@@ -423,8 +418,6 @@ function extensaoFicheiro(filename) {
 // própria em users/{id}/{apiKey} (ver BLOCK_COLLECTIONS no ca DOdastroController), não no
 // documento do user  -  por isso ficam fora do "form" e são geridos em blockLists.
 const BLOCK_FIELDS = ALL_FIELDS.filter(f => f.type === "blocks");
-// Id do bloco do contrato atual em collapsedBlocks (não é um bloco da subcoleção).
-const CURRENT_BLOCK_ID = "__contrato_atual";
 const INITIAL_BLOCK_LISTS = BLOCK_FIELDS.reduce((acc, f) => { acc[f.key] = []; return acc; }, {});
 
 function novoBlocoId() {
@@ -481,7 +474,7 @@ export default function Cadastro() {
   const missingCount = missingFields.length;
   // Erros de validação (formato/consistência)  -  só interessam em modo de edição.
   const fieldErrors = useMemo(() => (editMode ? getFieldErrors(form, docRefs) : {}), [editMode, form, docRefs]);
-  const blockErrors = useMemo(() => (editMode ? getBlockErrors(blockLists) : {}), [editMode, blockLists]);
+  const blockErrors = useMemo(() => (editMode ? getBlockErrors(blockLists, canEditRestricted) : {}), [editMode, blockLists, canEditRestricted]);
   const fileInputRefs = useRef({});
   // Só usado para revelar a caixa "Dados de estágio" antes de haver qualquer dado guardado
   // (ex: acabou de clicar "Adicionar dados de estágio"). Uma vez que existam dados, a caixa
@@ -561,7 +554,7 @@ export default function Cadastro() {
       setCollapsedBlocks(Object.values(novosBlockLists).flat().reduce((acc, b) => {
         if (b.dataInicio) acc[b.id] = true;
         return acc;
-      }, { [CURRENT_BLOCK_ID]: !!data.form?.data_admissao }));
+      }, {}));
       return true;
     }
     return false;
@@ -721,9 +714,10 @@ export default function Cadastro() {
   // no cadastroController), não no documento do user, por isso ficam fora do "form".
   // "entidade" só é usado pelos campos que definem `entidadeLabel`.
   const handleAddBlock = (key) => {
+    const entidade = FIELD_BY_KEY[key]?.entidadePadrao ? (targetEntidadeNome || "") : "";
     setBlockLists(prev => ({
       ...prev,
-      [key]: [...(prev[key] || []), { id: novoBlocoId(), tipo: "", entidade: "", dataInicio: "", dataFim: "", observacao: "", pdf: null }],
+      [key]: [...(prev[key] || []), { id: novoBlocoId(), tipo: "", entidade, dataInicio: "", dataFim: "", observacao: "", pdf: null }],
     }));
   };
 
@@ -746,9 +740,10 @@ export default function Cadastro() {
       const field = FIELD_BY_KEY[key];
       const bloco = (blockLists[key] || []).find(b => b.id === id);
       // Nome do ficheiro = intervalo de datas do bloco (ex: "2024-01-15_a_2024-06-30.pdf"),
-      // ou o id do bloco se ainda não houver datas preenchidas.
-      const baseName = bloco?.dataInicio && bloco?.dataFim
-        ? `${bloco.dataInicio}_a_${bloco.dataFim}`
+      // só a data de início se ainda não tiver fim (ex: contrato sem termo), ou o id do
+      // bloco se ainda não houver datas preenchidas.
+      const baseName = bloco?.dataInicio
+        ? (bloco.dataFim ? `${bloco.dataInicio}_a_${bloco.dataFim}` : bloco.dataInicio)
         : `sem_data_${id}`;
       const formData = new FormData();
       formData.append("file", file);
@@ -1015,47 +1010,6 @@ export default function Cadastro() {
                 </div>
               );
             })}
-            {field.currentKeys && (() => {
-              // Contrato atual: mesmo aspeto dos blocos acima, mas os campos são os do próprio
-              // documento do user (renderField normal, com a validação de getFieldErrors).
-              const currentFields = field.currentKeys.map(k => FIELD_BY_KEY[k])
-                .filter(f => !f.showIf || f.showIf(dataSource));
-              const temErro = editable && currentFields.some(f => errors[f.key]);
-              const isCollapsed = !!collapsedBlocks[CURRENT_BLOCK_ID] && !temErro;
-              const summaryExtra = [dataSource.tipo_contrato, targetEntidadeNome].filter(Boolean).join(" · ");
-              const summary = dataSource.data_admissao || dataSource.data_fim_contrato
-                ? `${fmtDate(dataSource.data_admissao)} - ${fmtDate(dataSource.data_fim_contrato)}${summaryExtra ? ` · ${summaryExtra}` : ""}`
-                : `${summaryExtra || "Contrato atual"}`;
-              return (
-                <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 12, background: "#fafafa" }}>
-                  <div
-                    onClick={() => toggleBlockCollapsed(CURRENT_BLOCK_ID)}
-                    style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0, cursor: "pointer" }}
-                  >
-                    <FaChevronDown style={{
-                      fontSize: 11, color: "#9ca3af", flexShrink: 0, transition: "transform 0.15s",
-                      transform: isCollapsed ? "rotate(-90deg)" : "none",
-                    }} />
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {summary}
-                    </span>
-                  </div>
-                  {!isCollapsed && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-3" style={{ marginTop: 10 }}>
-                      {/* Tipo numa linha; admissão, fim e duração na seguinte (como nos anteriores). */}
-                      {currentFields.map(f => renderField(f.key === "data_admissao" ? { ...f, newRow: true } : f, editable, dataSource, errors, blockErrs))
-                        .flatMap((el, i) => {
-                          const k = currentFields[i].key;
-                          const ultimaData = currentFields.some(f => f.key === "data_fim_contrato") ? "data_fim_contrato" : "data_admissao";
-                          return field.showDuracao && k === ultimaData
-                            ? [el, renderDuracaoContrato(dataSource.data_admissao, dataSource.data_fim_contrato)]
-                            : [el];
-                        })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
             {editable && (
               <div
                 onClick={() => handleAddBlock(key)}
@@ -1068,7 +1022,7 @@ export default function Cadastro() {
                 <FaPlus style={{ fontSize: 11 }} /> {field.addLabel || "REGISTAR"}
               </div>
             )}
-            {!editable && blocks.length === 0 && !field.currentKeys && (
+            {!editable && blocks.length === 0 && (
               <div style={{ fontSize: 11.5, color: "#9ca3af" }}>{field.emptyLabel || `Sem ${label.toLowerCase()} registadas`}</div>
             )}
           </div>
@@ -1239,10 +1193,10 @@ export default function Cadastro() {
     }
 
     if (type === "tenure") {
-      // Contrato atual + contratos anteriores (blockLists[historyKey], por isso atualiza-se
-      // logo ao adicionar/editar/remover um contrato)  -  ver calcularAntiguidadeMeses.
+      // Lista de contratos (blockLists[historyKey], por isso atualiza-se logo ao adicionar/
+      // editar/remover um contrato)  -  ver calcularAntiguidadeMeses.
       const hoje = new Date().toISOString().slice(0, 10);
-      const tempo = formatAntiguidade(calcularAntiguidadeMeses(dataSource, blockLists[field.historyKey], hoje));
+      const tempo = formatAntiguidade(calcularAntiguidadeMeses(blockLists[field.historyKey], hoje));
       return (
         <div key={key} style={layoutStyle}>
           <span style={labelStyle}>{label}</span>
@@ -1417,8 +1371,7 @@ export default function Cadastro() {
           {!loading && SECTIONS.map(section => {
             const sectionEditable = editMode && (!section.restricted || canEditRestricted);
             const sectionData = form;
-            // Campos "inBlock" (contrato atual) são desenhados dentro do campo "blocks" que os lista em currentKeys.
-            const visibleFields = section.fields.filter(f => !f.inBlock && (!f.showIf || f.showIf(sectionData)));
+            const visibleFields = section.fields.filter(f => !f.showIf || f.showIf(sectionData));
 
             if (section.isEstagio) {
               const estagioHasData = hasEstagioData(sectionData, docRefs);

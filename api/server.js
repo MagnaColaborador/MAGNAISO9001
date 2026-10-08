@@ -28,9 +28,10 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Endpoint de teste
+// Endpoint de teste. "commit" (RENDER_GIT_COMMIT, definido pelo Render) diz que versão está
+// no ar - dá para saber quando um deploy terminou (ex: antes de correr um script de migração).
 app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Servidor a funcionar!' });
+  res.json({ status: 'OK', message: 'Servidor a funcionar!', commit: process.env.RENDER_GIT_COMMIT || null });
 });
 
 app.use("/users", userRoute);

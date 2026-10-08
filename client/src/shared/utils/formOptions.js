@@ -44,7 +44,10 @@ export const MOTIVO_CESSACAO_OPTIONS = [
 ];
 // Locais de trabalho (LOCAL_OPTIONS/moradas) já não vivem aqui: a fonte de verdade é o
 // backend (api/shared/lib/locaisTrabalho.js), obtida com o hook useLocaisTrabalho.
-export const TIPO_CONTRATO_SEM_TERMO = "Contrato sem termo";
+// Contrato a termo certo: tem sempre data de início e de fim (não se grava um sem as duas).
+// Um a termo incerto, tal como um sem termo, pode ficar sem data de fim e conta até hoje.
+// Mesmo valor em api/domains/cadastro/contratos.js.
+export const TIPO_CONTRATO_A_TERMO_CERTO = "Contrato a termo certo";
 export const TIPO_ESTAGIO_OPTIONS = ["Profissional", "Curricular"];
 export const TIPO_ESTAGIO_PROFISSIONAL = "Profissional";
 export const HABILITACOES_OPTIONS = [

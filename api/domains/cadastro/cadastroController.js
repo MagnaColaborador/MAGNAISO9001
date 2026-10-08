@@ -5,6 +5,7 @@ const { sendMail, renderEmail } = require("../../shared/services/mailer");
 const {
   validarNIF, validarNISS, validarCodigoPostal, validarTelefone, validarCartaoCidadao, validarIBAN,
 } = require("../../shared/utils/validators");
+const { TIPO_CONTRATO_A_TERMO_CERTO, idsPorDataInicio, resumoContratos } = require("./contratos");
 
 // Um Administrador só vê/edita colaboradores das entidades que administra (nunca de
 // outra) - mesmo critério (entidadeNoAmbito) usado para ler e para escrever, só muda o
@@ -46,8 +47,10 @@ function canEditRestricted(req, targetEntidade) {
 
 // Campos de "Contrato de trabalho" e "Estágio": só quem passa canEditRestricted pode
 // alterá-los, mesmo que o próprio colaborador tenha acesso de escrita ao resto do seu cadastro.
+// (tipo_contrato/data_admissao/data_fim_contrato não estão aqui: já não vêm do formulário,
+// são calculados a partir da subcoleção "contratos" - ver resumoContratos em saveCadastro.)
 const RESTRICTED_FORM_KEYS = [
-  "tipo_contrato", "role", "departamento", "situacao_contratual", "motivo_cessacao", "data_admissao", "data_fim_contrato",
+  "role", "departamento", "situacao_contratual", "motivo_cessacao",
   "tipo_estagio", "n_processo_estagio", "id_processo_estagio", "entidade_medida",
   "data_inicio_estagio", "data_fim_estagio", "area_funcao", "habilitacoes_estagio",
   "entidade_estagio", "orientador", "observacao_estagio",
@@ -57,7 +60,6 @@ const RESTRICTED_FORM_KEYS = [
 // regionais aplicar).
 const RESTRICTED_KEYS = [...RESTRICTED_FORM_KEYS, "sede"];
 const RESTRICTED_DOC_KEYS = [
-  "digitalizacao_contrato",
   "digitalizacao_acordos_desvinculacao",
   "digitalizacao_contrato_estagio", "outra_documentacao_estagio",
 ];
@@ -72,29 +74,11 @@ const RESTRICTED_DOC_KEYS = [
 const BLOCK_COLLECTIONS = [
   { collection: "cedencias", requestKey: "cedencias" },
   { collection: "baixasMedicas", requestKey: "baixasMedicas" },
-  // Histórico de contratos anteriores (o contrato atual continua nos campos tipo_contrato/
-  // data_admissao/data_fim_contrato do documento do user). Subcoleção com nome próprio
-  // para não entrar nos collectionGroup('cedencias') usados no estado de hoje dos colaboradores.
-  // "idPorDataInicio": o id de cada documento é o ano-mês de início (ver idsPorDataInicio).
-  { collection: "contratosAnteriores", requestKey: "contratosAnteriores", idPorDataInicio: true },
+  // Todos os contratos de trabalho, atual incluído (ver contratos.js). Subcoleção com nome
+  // próprio para não entrar nos collectionGroup('cedencias') usados no estado de hoje dos
+  // colaboradores. "idPorDataInicio": o id de cada documento é o ano-mês de início.
+  { collection: "contratos", requestKey: "contratos", idPorDataInicio: true },
 ];
-
-// Ids "AAAA-MM" a partir da data de início de cada bloco (ex: "2022-08"), com sufixo
-// (_2, _3, ...) quando há mais do que um no mesmo mês - mesma ideia dos "registo_DDMMAAAA"
-// das Ferias/deslocações. Blocos sem data de início ficam "sem_data". Os ids são
-// recalculados a cada gravação (os blocos chegam do frontend com um id temporário, e
-// mudar a data de início muda o id), por ordem de data de início e, em empate, do id
-// recebido, para o mesmo conjunto de contratos dar sempre os mesmos ids.
-function idsPorDataInicio(items) {
-  const ordenados = [...items].sort((a, b) =>
-    (a.dataInicio || "9999").localeCompare(b.dataInicio || "9999") || String(a.id).localeCompare(String(b.id)));
-  const usados = {};
-  return ordenados.map(item => {
-    const base = /^\d{4}-\d{2}/.test(item.dataInicio || "") ? item.dataInicio.slice(0, 7) : "sem_data";
-    usados[base] = (usados[base] || 0) + 1;
-    return { ...item, id: usados[base] === 1 ? base : `${base}_${usados[base]}` };
-  });
-}
 
 // Situações contratuais que tiram o colaborador do quadro ativo - mesmo critério de
 // ColaboradoresGroupedList.jsx (só colaboradores ativos aparecem agrupados por entidade,
@@ -104,9 +88,10 @@ const INACTIVE_STATUSES = ["Cessado", "Suspenso", "Reformado"];
 
 // Substitui o conteúdo de uma subcoleção de "blocos" pelos itens recebidos (cada um
 // identificado pelo seu próprio id de documento)  -  cria/atualiza os que vieram no
-// pedido e apaga os que já não constam da lista.
+// pedido e apaga os que já não constam da lista. Só é chamada quando o pedido traz a lista
+// (ver saveCadastro): sem ela, apagaria a subcoleção toda.
 async function syncBlockCollection(collectionRef, items, { idPorDataInicio = false } = {}) {
-  const recebidos = Array.isArray(items) ? items.filter(it => it && it.id) : [];
+  const recebidos = items.filter(it => it && it.id);
   const incoming = idPorDataInicio ? idsPorDataInicio(recebidos) : recebidos;
   const existingSnap = await collectionRef.get();
   const existingIds = new Set(existingSnap.docs.map(doc => doc.id));
@@ -145,7 +130,7 @@ const CADASTRO_FIELD_KEYS = [
   "situacao_conjugal", "irs_jovem", "escalao_irs_jovem", "n_titulares",
   "n_dependentes", "tem_dependentes_deficientes", "n_dependentes_deficientes", "declarante_deficiente", "IBAN",
   "area_formacao", "habilitacoes", "ccp", "cv_atualizado", "ficha_dgert_atualizada",
-  "sede", "tipo_contrato", "role", "departamento", "situacao_contratual", "motivo_cessacao", "data_admissao", "data_fim_contrato",
+  "sede", "role", "departamento", "situacao_contratual", "motivo_cessacao",
   "tipo_estagio", "n_processo_estagio", "id_processo_estagio", "entidade_medida",
   "data_inicio_estagio", "data_fim_estagio", "area_funcao", "habilitacoes_estagio",
   "entidade_estagio", "orientador", "observacao_estagio",
@@ -228,7 +213,6 @@ function validarCadastroForm(form) {
   if ((form.telefone_emergencia || "").replace(/\D/g, "").length >= 9 && !validarTelefone(form.telefone_emergencia)) erros.push("Contacto de emergência inválido");
   if ((form.IBAN || "").replace(/\s/g, "").length >= 25 && !validarIBAN(form.IBAN)) erros.push("IBAN inválido");
   if (form.data_nascimento && form.validade_cc && form.validade_cc < form.data_nascimento) erros.push("Validade do CC anterior à data de nascimento");
-  if (form.data_admissao && form.data_fim_contrato && form.data_fim_contrato < form.data_admissao) erros.push("Data de fim de contrato anterior à data de admissão");
   if (form.data_inicio_estagio && form.data_fim_estagio && form.data_fim_estagio < form.data_inicio_estagio) erros.push("Data de fim de estágio anterior à data de início");
   return erros;
 }
@@ -269,12 +253,16 @@ const saveCadastro = async (req, res) => {
 
     const privileged = canEditRestricted(req, targetData.entidade);
 
+    // Só para quem pode editar os blocos (são os únicos cujas subcoleções são gravadas): a
+    // ordem das datas e, nos contratos a termo certo, as duas datas preenchidas.
     if (privileged) {
       const errosBlocos = [];
       BLOCK_COLLECTIONS.forEach(({ requestKey }) => {
         (Array.isArray(req.body[requestKey]) ? req.body[requestKey] : []).forEach(bloco => {
           if (bloco.dataInicio && bloco.dataFim && bloco.dataFim < bloco.dataInicio) {
             errosBlocos.push(`Data de fim anterior à data de início (${requestKey})`);
+          } else if (bloco.tipo === TIPO_CONTRATO_A_TERMO_CERTO && (!bloco.dataInicio || !bloco.dataFim)) {
+            errosBlocos.push(`Contrato a termo certo sem data de início ou de fim (${requestKey})`);
           }
         });
       });
@@ -289,6 +277,9 @@ const saveCadastro = async (req, res) => {
       if (!privileged && RESTRICTED_KEYS.includes(key)) return;
       update[key] = form[key];
     });
+    // Resumo da lista de contratos no próprio documento do colaborador (mapa de férias,
+    // relatórios de assiduidade - ver resumoContratos), sempre que a lista é gravada.
+    if (privileged && Array.isArray(req.body.contratos)) Object.assign(update, resumoContratos(req.body.contratos));
 
     const incomingDocs = docs || {};
     const existingDocsSnap = await userDocRef.collection("docs").get();
@@ -324,13 +315,17 @@ const saveCadastro = async (req, res) => {
     });
     if (allDocKeys.size > 0) await docsBatch.commit();
 
-    // Cedências temporárias / baixas médicas: só quem pode editar dados restritos altera
-    // estas subcoleções  -  um utilizador sem privilégio pode enviá-las de volta tal como
+    // Cedências temporárias / baixas médicas / contratos: só quem pode editar dados restritos
+    // altera estas subcoleções  -  um utilizador sem privilégio pode enviá-las de volta tal como
     // as recebeu (o campo continua "só de leitura" no frontend), por isso ignoramo-las aqui.
+    // Uma lista que não venha no pedido fica como está (ex: um separador aberto com uma
+    // versão antiga do ecrã, que ainda não conhece a subcoleção "contratos").
     if (privileged) {
-      await Promise.all(BLOCK_COLLECTIONS.map(({ collection, requestKey, idPorDataInicio }) =>
-        syncBlockCollection(userDocRef.collection(collection), req.body[requestKey], { idPorDataInicio })
-      ));
+      await Promise.all(BLOCK_COLLECTIONS
+        .filter(({ requestKey }) => Array.isArray(req.body[requestKey]))
+        .map(({ collection, requestKey, idPorDataInicio }) =>
+          syncBlockCollection(userDocRef.collection(collection), req.body[requestKey], { idPorDataInicio })
+        ));
     }
 
     res.json({ message: "Cadastro guardado com sucesso" });
